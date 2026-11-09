@@ -8,6 +8,7 @@ export interface PaymentFields {
   status: 'pending'|'approved'|'rejected'|'refunded'|'canceled';
   amountCents: number;
   providerPaymentId?: string;
+  providerOrderId?: string;
   providerSubscriptionId?: string;
   idempotencyKey: string;
   pixCode?: string;
@@ -22,6 +23,7 @@ const schema = new mongoose.Schema<PaymentFields>({
   status:{type:String,enum:['pending','approved','rejected','refunded','canceled'],default:'pending'},
   amountCents:{type:Number,required:true},
   providerPaymentId:{type:String,unique:true,sparse:true},
+  providerOrderId:{type:String,unique:true,sparse:true},
   providerSubscriptionId:{type:String},
   idempotencyKey:{type:String,required:true,unique:true},
   pixCode:String,pixQrBase64:String,pixTicketUrl:String,expiresAt:Date,paidAt:Date
