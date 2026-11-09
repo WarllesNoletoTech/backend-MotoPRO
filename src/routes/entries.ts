@@ -1,0 +1,74 @@
+import {Router} from 'express';
+import {z} from 'zod';
+import {Entry} from '../models/Entry.js';
+import {uid} from '../services/auth.js';
+import {asyncRoute,HttpError,validId} from '../utils/http.js';
+import {isValidDateOnly} from '../utils/dates.js';
+export const entriesRouter=Router();
+const schema=z.object({
+  type:z.enum(['income','expense']),
+  category:z.enum(['delivery','bonus','fuel','maintenance','food','other']),
+  amountCents:z.number().int().positive().max(100_000_000),
+  description:z.string().trim().max(160).default(''),
+  occurredOn:z.string().refine(isValidDateOnly,'Data inválida'),
+  source:z.enum(['manual','voice']).default('manual'),
+  fuelLiters:z.number().positive().max(200).optional(),
+  odometerKm:z.number().nonnegative().max(2_000_000).optional()
+}).superRefine((v,ctx)=>{
+  if(v.type==='income'&&!['delivery','bonus','other'].includes(v.category))ctx.addIssue({code:'custom',path:['category'],message:'Categoria incompatível com receita'});
+  if(v.type==='expense'&&['delivery','bonus'].includes(v.category))ctx.addIssue({code:'custom',path:['category'],message:'Categoria incompatível com despesa'});
+});
+const patchSchema=schema.innerType().partial();
+entriesRouter.get('/export',asyncRoute(async(req,res)=>{
+ const items=await Entry.find({userId:uid(req)}).sort({occurredOn:-1}).limit(10_000).lean();
+ const csvCell=(v:unknown)=>{
+   const value=String(v??'');
+   const safe=/^[=+@-]/.test(value)?`'${value}`:value;
+   return `"${safe.replace(/"/g,'""')}"`;
+ };
+ const columns=['Data','Tipo','Categoria','Descricao','Valor (R$)','Origem'];
+ const rows=items.map(i=>[i.occurredOn,i.type,i.category,i.description,(i.amountCents/100).toFixed(2).replace('.',','),i.source].map(csvCell).join(';'));
+ res.setHeader('Content-Type','text/csv; charset=utf-8');
+ res.setHeader('Content-Disposition','attachment; filename="motopro-lancamentos.csv"');
+ res.send('\ufeff'+[columns.join(';'),...rows].join('\r\n'));
+}));
+entriesRouter.get('/',asyncRoute(async(req,res)=>{
+  const page=Math.max(1,Math.min(1000,Number(req.query.page)||1));
+  const limit=Math.max(1,Math.min(100,Number(req.query.limit)||20));
+  const filter:Record<string,unknown>={userId:uid(req)};
+  if(req.query.type==='income'||req.query.type==='expense')filter.type=req.query.type;
+  if(req.query.from||req.query.to){
+    const from=String(req.query.from||'0001-01-01'),to=String(req.query.to||'9999-12-31');
+    if(!isValidDateOnly(from)||!isValidDateOnly(to)||from>to)throw new HttpError(400,'Período inválido');
+    filter.occurredOn={$gte:from,$lte:to};
+  }
+  const [items,total]=await Promise.all([
+    Entry.find(filter).sort({occurredOn:-1,createdAt:-1}).skip((page-1)*limit).limit(limit).lean(),
+    Entry.countDocuments(filter)
+  ]);
+  res.json({items,total,page,limit});
+}));
+entriesRouter.post('/',asyncRoute(async(req,res)=>{
+  const data=schema.parse(req.body);
+  const entry=await Entry.create({userId:uid(req),...data});
+  res.status(201).json({entry});
+}));
+entriesRouter.patch('/:id',asyncRoute(async(req,res)=>{
+  if(!validId(req.params.id))throw new HttpError(400,'ID inválido');
+  const patch=patchSchema.parse(req.body);
+  const current=await Entry.findOne({_id:req.params.id,userId:uid(req)});
+  if(!current)throw new HttpError(404,'Lançamento não encontrado');
+  if(current.source==='integration')throw new HttpError(403,'Importações devem ser corrigidas na plataforma de origem');
+  const merged=schema.parse({...current.toObject(),...patch});
+  for(const key of ['type','category','amountCents','description','occurredOn','source','fuelLiters','odometerKm'] as const){
+    if(key in merged)current.set(key,merged[key]);
+  }
+  await current.save();res.json({entry:current});
+}));
+entriesRouter.delete('/:id',asyncRoute(async(req,res)=>{
+  if(!validId(req.params.id))throw new HttpError(400,'ID inválido');
+  const entry=await Entry.findOne({_id:req.params.id,userId:uid(req)});
+  if(!entry)throw new HttpError(404,'Lançamento não encontrado');
+  if(entry.source==='integration')throw new HttpError(403,'Não é possível excluir uma importação por aqui');
+  await entry.deleteOne();res.json({ok:true});
+}));
