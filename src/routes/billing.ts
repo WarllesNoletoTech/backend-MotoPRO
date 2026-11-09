@@ -16,11 +16,23 @@ const makePlan=(priceCents:number)=>({priceCents,currency:'BRL',frequency:7,freq
 billingRouter.get('/plan',asyncRoute(async(_req,res)=>res.json({plan:makePlan((await getAdminSettings()).weeklyPriceCents),billingEnabled:pixPaymentConfig().enabled})));
 billingRouter.get('/me',asyncRoute(async(req,res)=>{
  const userId=new mongoose.Types.ObjectId(uid(req));
- const sub=await BillingSubscription.findOne({userId}).lean();
- const payment=await BillingPayment.findOne({userId,method:'pix',status:'pending'}).sort({createdAt:-1}).lean();
+ const [sub,payment,latestPix,settings,courtesy]=await Promise.all([
+  BillingSubscription.findOne({userId}).lean(),
+  BillingPayment.findOne({userId,method:'pix',status:'pending'}).sort({createdAt:-1}).lean(),
+  BillingPayment.findOne({userId,method:'pix'}).sort({createdAt:-1}).select('_id status amountCents paidAt createdAt').lean(),
+  getAdminSettings(),
+  CourtesyGrant.findOne({userId,activeUntil:{$gt:new Date()}}).select('activeUntil').lean()
+ ]);
  const active=!!sub?.activeUntil && new Date(sub.activeUntil)>new Date();
- const [settings,courtesy]=await Promise.all([getAdminSettings(),CourtesyGrant.findOne({userId,activeUntil:{$gt:new Date()}}).select('activeUntil').lean()]);
- res.json({plan:makePlan(settings.weeklyPriceCents),courtesyUntil:courtesy?.activeUntil??null,billingEnabled:pixPaymentConfig().enabled,subscription:sub?{method:sub.method,status:sub.status,activeUntil:sub.activeUntil,cancelAtPeriodEnd:sub.cancelAtPeriodEnd,active}:null,pendingPix:payment?{id:String(payment._id),code:payment.pixCode,qrCodeBase64:payment.pixQrBase64,ticketUrl:payment.pixTicketUrl,expiresAt:payment.expiresAt}:null});
+ res.setHeader('Cache-Control','private, no-store');
+ res.json({
+  plan:makePlan(settings.weeklyPriceCents),courtesyUntil:courtesy?.activeUntil??null,
+  billingEnabled:pixPaymentConfig().enabled,
+  subscription:sub?{method:sub.method,status:sub.status,activeUntil:sub.activeUntil,cancelAtPeriodEnd:sub.cancelAtPeriodEnd,active}:null,
+  pendingPix:payment?{id:String(payment._id),code:payment.pixCode,qrCodeBase64:payment.pixQrBase64,ticketUrl:payment.pixTicketUrl,expiresAt:payment.expiresAt}:null,
+  // Estado obtido do MongoDB APÓS conciliação com o Mercado Pago, nunca do navegador.
+  latestPix:latestPix?{id:String(latestPix._id),status:latestPix.status,amountCents:latestPix.amountCents,paidAt:latestPix.paidAt??null}:null
+ });
 }));
 billingRouter.post('/pix',asyncRoute(async(req,res)=>{
  if(!pixPaymentConfig().enabled)throw new HttpError(503,'Pix de teste ainda não configurado');
