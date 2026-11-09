@@ -11,7 +11,7 @@ import {asyncRoute,HttpError} from '../utils/http.js';
 import {mp,mpPix,paymentConfig,pixPaymentConfig,MpPixOrder,MpSubscription} from '../services/mercadoPago.js';
 import {syncPixPayment,syncPixOrder,syncCreditSubscription} from '../services/billing.js';
 import {subscriptionNotice} from '../utils/subscriptionLifecycle.js';
-import {premiumAccessFor} from '../services/premiumPolicy.js';
+import {premiumAccessFor,currentTrialUntil} from '../services/premiumPolicy.js';
 
 export const billingRouter=Router();
 const makePlan=(priceCents:number)=>({priceCents,currency:'BRL',frequency:7,frequencyUnit:'days',methods:['pix'] as const,pixAutomaticAvailable:false});
@@ -31,18 +31,19 @@ billingRouter.get('/me',asyncRoute(async(req,res)=>{
   await BillingSubscription.updateOne({_id:sub._id,status:'active',activeUntil:{$lte:now}},{$set:{status:'expired'}});
  }
  // findById retorna um documento único; o model legado não tipa o .lean() corretamente.
- const user=(await User.findById(userId).select('trialEndsAt role').lean()) as
-  {trialEndsAt?:Date|null;role?:'driver'|'admin'}|null;
- const notice=subscriptionNotice({paidUntil:sub?.activeUntil,trialUntil:user?.trialEndsAt,courtesyUntil:courtesy?.activeUntil},now);
+ const user=(await User.findById(userId).select('createdAt role').lean()) as
+  {createdAt?:Date|null;role?:'driver'|'admin'}|null;
+ if(!user)throw new HttpError(401,'Conta não encontrada');
+ const notice=subscriptionNotice({paidUntil:sub?.activeUntil,trialUntil:currentTrialUntil(user.createdAt,settings.trialDays),courtesyUntil:courtesy?.activeUntil},now);
  const active=!!sub?.activeUntil && new Date(sub.activeUntil)>now;
  res.setHeader('Cache-Control','private, no-store');
  res.json({
-  contractVersion:2,
+  contractVersion:2,trialDays:settings.trialDays,
   plan:makePlan(settings.weeklyPriceCents),courtesyUntil:courtesy?.activeUntil??null,
   billingEnabled:pixPaymentConfig().enabled,
   subscription:sub?{method:sub.method,status:active?sub.status:(sub.status==='active'?'expired':sub.status),activeUntil:sub.activeUntil,cancelAtPeriodEnd:sub.cancelAtPeriodEnd,active}:null,
   notice,renewalAllowed:notice.renewalAllowed,
-  access:premiumAccessFor(notice.status,settings.premiumRequired,user?.role==='admin'),
+  access:premiumAccessFor(notice.status,true,user.role==='admin'),
   pendingPix:payment?{id:String(payment._id),code:payment.pixCode,qrCodeBase64:payment.pixQrBase64,ticketUrl:payment.pixTicketUrl,expiresAt:payment.expiresAt}:null,
   // Estado obtido do MongoDB APÓS conciliação com o Mercado Pago, nunca do navegador.
   latestPix:latestPix?{id:String(latestPix._id),status:latestPix.status,amountCents:latestPix.amountCents,paidAt:latestPix.paidAt??null}:null

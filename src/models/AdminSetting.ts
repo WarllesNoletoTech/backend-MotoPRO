@@ -13,7 +13,7 @@ export interface AdminSettingFields {
 const schema = new mongoose.Schema<AdminSettingFields>({
   key:{type:String,required:true,unique:true,default:'global'},
   weeklyPriceCents:{type:Number,min:199,max:99900,default:999},
-  trialDays:{type:Number,min:0,max:30,default:7},
+  trialDays:{type:Number,min:0,max:30,default:0},
   premiumRequired:{type:Boolean,default:true},
   newRegistrationsOpen:{type:Boolean,default:true},
   announcement:{type:String,default:'',maxlength:500},
@@ -25,8 +25,9 @@ export const AdminSetting: mongoose.Model<AdminSettingFields> =
  mongoose.model<AdminSettingFields>('AdminSetting',schema);
 export async function getAdminSettings(){
  const settings=await AdminSetting.findOne({key:'global'}).lean();
- return {weeklyPriceCents:settings?.weeklyPriceCents??999,trialDays:settings?.trialDays??7,
-  premiumRequired:settings?.premiumRequired??true,
+ return {weeklyPriceCents:settings?.weeklyPriceCents??999,trialDays:settings?.trialDays??0,
+  // O plano exige pagamento ou direito válido. Valores antigos false nunca liberam o aplicativo.
+  premiumRequired:true,
   newRegistrationsOpen:settings?.newRegistrationsOpen??true,announcement:settings?.announcement??'',
   premiumBenefits:settings?.premiumBenefits??['Assistente inteligente','Controle financeiro','Gestão da moto'],
   maintenanceNotice:settings?.maintenanceNotice??''};

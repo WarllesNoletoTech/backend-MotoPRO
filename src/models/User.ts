@@ -11,7 +11,7 @@ const schema = new Schema({
   timezone:{type:String,default:'America/Belem'},
   // Para usuários antigos pode estar ausente até completar o cadastro.
   phone:{type:String,trim:true,default:null,maxlength:16},
-  // Sem prazo gratuito implícito: os dias são definidos exclusivamente no cadastro, pelo admin.
+  // Campo legado. A autorização SEMPRE usa createdAt + dias atuais definidos pelo admin.
   trialEndsAt:{type:Date,default:null}
 },{timestamps:true});
 // Limita o banco a uma única conta de administrador.

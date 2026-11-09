@@ -12,6 +12,7 @@ import {uid} from '../services/auth.js';
 import {asyncRoute,HttpError} from '../utils/http.js';
 import {pixPaymentConfig} from '../services/mercadoPago.js';
 import {REMINDER_WINDOW_MS} from '../utils/subscriptionLifecycle.js';
+import {currentTrialUntil} from '../services/premiumPolicy.js';
 
 export const adminBillingRouter=Router();
 adminBillingRouter.use(asyncRoute(async(req,_res,next)=>{
@@ -32,9 +33,9 @@ const pageParams=(q:Record<string,unknown>)=>({
 const audit=async(actorId:string,action:string,targetId?:mongoose.Types.ObjectId,metadata:Record<string,string|number|boolean|null>={})=>{
  await AdminAudit.create({actorId:getId(actorId),action,targetId,metadata});
 };
-const publicUser=(u:any)=>({id:String(u._id),name:u.name,email:u.email,phone:u.phone||null,role:u.role,
+const publicUser=(u:any,trialDays:number)=>({id:String(u._id),name:u.name,email:u.email,phone:u.phone||null,role:u.role,
  blocked:!!u.blockedAt,blockReason:u.blockReason||'',createdAt:u.createdAt,lastLoginAt:u.lastLoginAt??null,
- trialEndsAt:u.trialEndsAt??null});
+ trialEndsAt:currentTrialUntil(u.createdAt,trialDays)});
 const escapeRegex=(s:string)=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
 
 adminBillingRouter.get('/overview',asyncRoute(async(_req,res)=>{
@@ -64,15 +65,15 @@ adminBillingRouter.get('/users',asyncRoute(async(req,res)=>{
  if(query.filter==='blocked')filter.blockedAt={$ne:null};
  if(query.filter==='active')filter.blockedAt=null;
  if(query.search)filter.$or=[{name:{$regex:escapeRegex(query.search),$options:'i'}},{email:{$regex:escapeRegex(query.search),$options:'i'}}];
- const [count,users]=await Promise.all([User.countDocuments(filter),User.find(filter)
+ const [count,users,settings]=await Promise.all([User.countDocuments(filter),User.find(filter)
   .select('name email phone role blockedAt blockReason trialEndsAt lastLoginAt createdAt')
-  .sort({createdAt:-1}).skip((page-1)*limit).limit(limit).lean()]);
+  .sort({createdAt:-1}).skip((page-1)*limit).limit(limit).lean(),getAdminSettings()]);
  const ids=users.map(u=>u._id);
  const [subscriptions,courtesies]=await Promise.all([
   BillingSubscription.find({userId:{$in:ids}}).select('userId status method activeUntil cancelAtPeriodEnd').lean(),
   CourtesyGrant.find({userId:{$in:ids}}).select('userId activeUntil').lean()]);
  res.json({page,limit,total:count,items:users.map(u=>({
-  ...publicUser(u),subscription:subscriptions.find(s=>String(s.userId)===String(u._id))||null,
+  ...publicUser(u,settings.trialDays),subscription:subscriptions.find(s=>String(s.userId)===String(u._id))||null,
   courtesyUntil:courtesies.find(c=>String(c.userId)===String(u._id))?.activeUntil??null
  }))});
 }));
@@ -151,9 +152,10 @@ const settingsInput=z.object({weeklyPriceCents:z.number().int().min(199).max(999
  premiumBenefits:z.array(z.string().trim().min(2).max(90)).max(10)}).strict();
 adminBillingRouter.patch('/settings',asyncRoute(async(req,res)=>{
  const data=settingsInput.parse(req.body);const previous=await getAdminSettings();
- await AdminSetting.findOneAndUpdate({key:'global'},{$set:data,$setOnInsert:{key:'global'}},{upsert:true,new:true,runValidators:true});
- await audit(uid(req),'settings.update',undefined,{previousPrice:previous.weeklyPriceCents,newPrice:data.weeklyPriceCents,trialDays:data.trialDays,premiumRequired:data.premiumRequired??previous.premiumRequired,registrations:data.newRegistrationsOpen});
- res.json({settings:await getAdminSettings(),warning:'Os dias de teste valem para novos cadastros; assinaturas pagas e cortesias já existentes não são alteradas.'});
+ // Reabilitar cobrança é obrigatório; até um frontend antigo enviando false não pode desproteger todos.
+ await AdminSetting.findOneAndUpdate({key:'global'},{$set:{...data,premiumRequired:true},$setOnInsert:{key:'global'}},{upsert:true,new:true,runValidators:true});
+ await audit(uid(req),'settings.update',undefined,{previousPrice:previous.weeklyPriceCents,newPrice:data.weeklyPriceCents,trialDays:data.trialDays,premiumRequired:true,registrations:data.newRegistrationsOpen});
+ res.json({settings:await getAdminSettings(),warning:'Dias gratuitos valem desde a criação da conta e são recalculados imediatamente. Pix pagos e cortesias individuais não são alterados.'});
 }));
 
 const campaignCreate=z.object({title:z.string().trim().min(4).max(100),description:z.string().trim().min(10).max(1200),

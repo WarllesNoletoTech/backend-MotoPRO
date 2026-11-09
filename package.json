@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/services/commands.test.ts src/utils/dates.test.ts src/services/creditTestPayer.test.ts src/utils/subscriptionLifecycle.test.ts src/services/premiumPolicy.test.ts src/utils/phone.test.ts",
+    "test": "tsx --test src/services/commands.test.ts src/utils/dates.test.ts src/services/creditTestPayer.test.ts src/utils/subscriptionLifecycle.test.ts src/services/premiumPolicy.test.ts src/services/premiumRoutes.test.ts src/utils/phone.test.ts",
     "heroku-postbuild": "npm run build",
     "admin:create": "node scripts/create-admin.mjs"
   },

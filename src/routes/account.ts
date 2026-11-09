@@ -8,24 +8,27 @@ import {Goal} from '../models/Goal.js';
 import {BillingPayment} from '../models/BillingPayment.js';
 import {BillingSubscription} from '../models/BillingSubscription.js';
 import {uid} from '../services/auth.js';
+import {getAdminSettings} from '../models/AdminSetting.js';
+import {currentTrialUntil} from '../services/premiumPolicy.js';
 import {asyncRoute,HttpError} from '../utils/http.js';
 
 /** Exportação dos próprios dados, independente do plano. Nunca exporta senha, JWT, tokens ou código Pix. */
 export const accountRouter=Router();
 accountRouter.get('/export',asyncRoute(async(req,res)=>{
  const userId=new mongoose.Types.ObjectId(uid(req));
- const [user,entries,motorcycle,reminders,goal,subscription,payments]=await Promise.all([
+ const [user,entries,motorcycle,reminders,goal,subscription,payments,settings]=await Promise.all([
    User.findById(userId).select('name email phone role timezone trialEndsAt createdAt').lean(),
    Entry.find({userId}).select('type category description amountCents occurredOn source fuelLiters odometerKm createdAt').sort({occurredOn:-1}).lean(),
    Motorcycle.findOne({userId}).select('model year odometerKm kmPerLiter').lean(),
    Maintenance.find({userId}).select('label dueOn dueKm done createdAt').lean(),
    Goal.findOne({userId}).select('weeklyTargetCents').lean(),
    BillingSubscription.findOne({userId}).select('method status priceCents activeUntil cancelAtPeriodEnd').lean(),
-   BillingPayment.find({userId}).select('method status amountCents paidAt createdAt').sort({createdAt:-1}).lean()
+   BillingPayment.find({userId}).select('method status amountCents paidAt createdAt').sort({createdAt:-1}).lean(),
+   getAdminSettings()
  ]);
  if(!user)throw new HttpError(401,'Conta não encontrada');
  res.setHeader('Cache-Control','private, no-store');
  res.setHeader('Content-Type','application/json; charset=utf-8');
  res.setHeader('Content-Disposition','attachment; filename="motopro-meus-dados.json"');
- res.json({exportedAt:new Date().toISOString(),user,entries,motorcycle,reminders,goal,subscription,payments});
+ res.json({exportedAt:new Date().toISOString(),user:{...user,trialEndsAt:currentTrialUntil(user.createdAt,settings.trialDays)},entries,motorcycle,reminders,goal,subscription,payments});
 }));

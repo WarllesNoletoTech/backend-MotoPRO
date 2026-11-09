@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import {z} from 'zod';
 import {User} from '../models/User.js';
 import {getAdminSettings} from '../models/AdminSetting.js';
-import {trialEndsAtFromDays} from '../services/premiumPolicy.js';
+
 import {normalizeBrazilMobilePhone} from '../utils/phone.js';
 import {asyncRoute,HttpError} from '../utils/http.js';
 import {clearSession,requireAuth,setSession,uid,userResponse} from '../services/auth.js';
@@ -19,8 +19,8 @@ authRouter.post('/register',limit,asyncRoute(async(req,res)=>{
   const settings=await getAdminSettings();
   if(!settings.newRegistrationsOpen)throw new HttpError(503,'Novos cadastros estão temporariamente indisponíveis');
   const passwordHash=await bcrypt.hash(data.password,12);
-  const user=await User.create({name:data.name,email:data.email,phone:data.phone,passwordHash,trialEndsAt:trialEndsAtFromDays(settings.trialDays)});
-  setSession(res,String(user._id));res.status(201).json({user:userResponse(user)});
+  const user=await User.create({name:data.name,email:data.email,phone:data.phone,passwordHash,trialEndsAt:null});
+  setSession(res,String(user._id));res.status(201).json({user:userResponse(user,settings.trialDays)});
 }));
 authRouter.post('/login',limit,asyncRoute(async(req,res)=>{
   const {email,password}=login.parse(req.body);
@@ -28,13 +28,13 @@ authRouter.post('/login',limit,asyncRoute(async(req,res)=>{
   if(!user||!await bcrypt.compare(password,user.passwordHash))throw new HttpError(401,'E-mail ou senha inválidos');
   if(user.blockedAt)throw new HttpError(403,'Conta temporariamente bloqueada. Contate o suporte.');
   await User.updateOne({_id:user._id},{$set:{lastLoginAt:new Date()}});
-  setSession(res,String(user._id));res.json({user:userResponse(user)});
+  setSession(res,String(user._id));res.json({user:userResponse(user,(await getAdminSettings()).trialDays)});
 }));
 authRouter.post('/logout',(_req,res)=>{clearSession(res);res.json({ok:true});});
 authRouter.get('/me',requireAuth,asyncRoute(async(req,res)=>{
   const user=await User.findById(uid(req));
   if(!user)throw new HttpError(401,'Conta não encontrada');
-  res.json({user:userResponse(user)});
+  res.json({user:userResponse(user,(await getAdminSettings()).trialDays)});
 }));
 
 // Usuários anteriores à V3.11 completam o celular após o login, sem perder histórico ou assinatura.
@@ -45,5 +45,5 @@ authRouter.patch('/phone',requireAuth,asyncRoute(async(req,res)=>{
  user.set('phone',data.phone);
  await user.save();
  res.setHeader('Cache-Control','private, no-store');
- res.json({user:userResponse(user)});
+ res.json({user:userResponse(user,(await getAdminSettings()).trialDays)});
 }));
