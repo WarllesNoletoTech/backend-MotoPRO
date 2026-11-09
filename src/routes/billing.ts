@@ -10,6 +10,7 @@ import {uid} from '../services/auth.js';
 import {asyncRoute,HttpError} from '../utils/http.js';
 import {mp,mpPix,paymentConfig,pixPaymentConfig,MpPixOrder,MpSubscription} from '../services/mercadoPago.js';
 import {syncPixPayment,syncPixOrder,syncCreditSubscription} from '../services/billing.js';
+import {resolveCreditPayerEmail} from '../services/creditTestPayer.js';
 
 export const billingRouter=Router();
 const makePlan=(priceCents:number)=>({priceCents,currency:'BRL',frequency:7,frequencyUnit:'days',methods:['pix','credit'] as const,pixAutomaticAvailable:false});
@@ -57,12 +58,12 @@ billingRouter.post('/pix',asyncRoute(async(req,res)=>{
 billingRouter.post('/credit',asyncRoute(async(req,res)=>{
  const cfg=paymentConfig();if(!cfg.enabled)throw new HttpError(503,'Pagamentos ainda em homologação');
  const userId=new mongoose.Types.ObjectId(uid(req));
- const user=await User.findById(userId).select('email');if(!user)throw new HttpError(401,'Conta inválida');
+ const user=await User.findById(userId).select('email role');if(!user)throw new HttpError(401,'Conta inválida');
  const old=await BillingSubscription.findOne({userId,method:'credit'});
  if(old?.providerSubscriptionId && !old.cancelAtPeriodEnd)throw new HttpError(409,'Já existe uma assinatura de cartão; verifique seu status ou cancele primeiro');
  const priceCents=(await getAdminSettings()).weeklyPriceCents;
  const result=await mp<MpSubscription&{init_point?:string}>('POST','/preapproval',{
-  reason:`MotoPRO Premium - R$ ${(priceCents/100).toFixed(2).replace('.',',')} por semana`,payer_email:user.email,
+  reason:`MotoPRO Premium - R$ ${(priceCents/100).toFixed(2).replace('.',',')} por semana`,payer_email:resolveCreditPayerEmail(user,{testMode:process.env.MP_CREDIT_TEST_MODE,testPayerEmail:process.env.MP_CREDIT_TEST_PAYER_EMAIL,enforcePremium:process.env.MP_ENFORCE_PREMIUM}),
   external_reference:`motopro_credit_${String(userId)}`,
   auto_recurring:{frequency:7,frequency_type:'days',transaction_amount:priceCents/100,currency_id:'BRL'},
   back_url:`${cfg.front}/app/assinatura`,status:'pending',

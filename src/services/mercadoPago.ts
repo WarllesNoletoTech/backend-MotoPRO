@@ -33,7 +33,13 @@ async function requestMp<T>(token:string,method:'GET'|'POST'|'PUT',path:string,p
  try {
   const r=await fetch(`${API}${path}`,{method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json',...(idempotencyKey?{'X-Idempotency-Key':idempotencyKey}:{})},...(payload?{body:JSON.stringify(payload)}:{}),signal:controller.signal});
   const data:unknown=await r.json().catch(()=>({}));
-  if(!r.ok){console.error('Mercado Pago falhou',r.status,JSON.stringify(data).slice(0,350));throw new HttpError(502,'Mercado Pago indisponível; tente novamente');}
+  if(!r.ok){
+   const msg=(typeof data==='object' && data!==null && 'message' in data)?String((data as {message?:unknown}).message):'';
+   console.error('Mercado Pago falhou',r.status,JSON.stringify(data).slice(0,350));
+   if(r.status===400 && /both payer and collector must be real or test users/i.test(msg))
+     throw new HttpError(422,'Teste Mercado Pago: comprador e vendedor precisam ser ambos contas de teste. Configure MP_CREDIT_TEST_PAYER_EMAIL para o admin ou use uma conta MotoPRO de teste com e-mail do comprador.');
+   throw new HttpError(502,'Mercado Pago indisponível; tente novamente');
+  }
   return data as T;
  } finally {clearTimeout(t);}
 }
