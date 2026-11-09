@@ -64,7 +64,7 @@ billingRouter.post('/credit',asyncRoute(async(req,res)=>{
  const result=await mp<MpSubscription&{init_point?:string}>('POST','/preapproval',{
   reason:`MotoPRO Premium - R$ ${(priceCents/100).toFixed(2).replace('.',',')} por semana`,payer_email:user.email,
   external_reference:`motopro_credit_${String(userId)}`,
-  auto_recurring:{frequency:1,frequency_type:'weeks',transaction_amount:priceCents/100,currency_id:'BRL'},
+  auto_recurring:{frequency:7,frequency_type:'days',transaction_amount:priceCents/100,currency_id:'BRL'},
   back_url:`${cfg.front}/app/assinatura`,status:'pending',
   notification_url:`${cfg.origin.replace(/\/$/,'')}/api/webhooks/mercadopago`
  });
