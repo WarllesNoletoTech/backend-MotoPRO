@@ -6,15 +6,17 @@ import {subscriptionNotice} from '../utils/subscriptionLifecycle.js';
 import {getAdminSettings} from '../models/AdminSetting.js';
 import {premiumAccessFor,currentTrialUntil} from './premiumPolicy.js';
 import {uid} from './auth.js';
+import {nameParts} from '../utils/name.js';
 import {asyncRoute,HttpError} from '../utils/http.js';
 
 /** O painel do admin controla a exigência em tempo real, sem redeploy ou variável Heroku. */
 export const requirePremium = asyncRoute(async(req,_res,next)=>{
   // A projeção é um documento único. Evita o falso tipo de lista do models.User legado.
-  const user=(await User.findById(uid(req)).select('role createdAt blockedAt phone').lean()) as
-    {role:'driver'|'admin';createdAt?:Date|null;blockedAt?:Date|null;phone?:string|null}|null;
+  const user=(await User.findById(uid(req)).select('role createdAt blockedAt phone name').lean()) as
+    {role:'driver'|'admin';createdAt?:Date|null;blockedAt?:Date|null;phone?:string|null;name:string}|null;
   if(!user)throw new HttpError(401,'Conta não encontrada');
   if(user.blockedAt)throw new HttpError(403,'Conta bloqueada. Entre em contato com o suporte.');
+  if(!nameParts(user.name).complete)throw new HttpError(428,'Complete seu nome e sobrenome em Minha conta para continuar.');
   if(user.role==='admin')return next();
   if(!user.phone)throw new HttpError(428,'Complete seu cadastro informando o celular com DDD para continuar.');
   const settings=await getAdminSettings();

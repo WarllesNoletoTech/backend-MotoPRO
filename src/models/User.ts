@@ -2,6 +2,9 @@ import mongoose from 'mongoose';
 const { model, models, Schema } = mongoose;
 const schema = new Schema({
   name:{type:String,required:true,trim:true,maxlength:90},
+  // Novos cadastros usam campos separados. Contas legadas mantêm apenas name até a atualização.
+  firstName:{type:String,trim:true,default:null,maxlength:90},
+  lastName:{type:String,trim:true,default:null,maxlength:90},
   email:{type:String,required:true,trim:true,lowercase:true,unique:true,index:true},
   passwordHash:{type:String,required:true,select:false},
   role:{type:String,enum:['driver','admin'],default:'driver'},

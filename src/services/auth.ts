@@ -3,9 +3,16 @@ import jwt from 'jsonwebtoken';
 import {User} from '../models/User.js';
 import {config} from '../config.js';
 import {currentTrialUntil} from './premiumPolicy.js';
+import {nameParts,validNamePart,joinFullName} from '../utils/name.js';
 import {asyncRoute,HttpError} from '../utils/http.js';
 const COOKIE='motopro_session';
-export const userResponse=(u:{_id:unknown;name:string;email:string;role:string;createdAt?:Date|null;phone?:string|null},trialDays=0)=>({id:String(u._id),name:u.name,email:u.email,phone:typeof u.phone==='string'?u.phone:null,role:u.role,trialEndsAt:currentTrialUntil(u.createdAt,trialDays)});
+export const userResponse=(u:{_id:unknown;name:string;firstName?:string|null;lastName?:string|null;email:string;role:string;createdAt?:Date|null;phone?:string|null},trialDays=0)=>{
+ const parsed=nameParts(u.name);
+ const stored=validNamePart(u.firstName||'')&&validNamePart(u.lastName||'')&&joinFullName(u.firstName!,u.lastName!).length<=90;
+ const firstName=stored?u.firstName!:parsed.firstName;
+ const lastName=stored?u.lastName!:parsed.lastName;
+ return {id:String(u._id),name:u.name,firstName,lastName,requiresNameCompletion:!parsed.complete,email:u.email,phone:typeof u.phone==='string'?u.phone:null,role:u.role,trialEndsAt:currentTrialUntil(u.createdAt,trialDays)};
+};
 export function setSession(res:Response,userId:string){
   const token=jwt.sign({sub:userId},config.jwtSecret,{expiresIn:'7d',issuer:'motopro'});
   res.cookie(COOKIE,token,{httpOnly:true,secure:config.isProd,sameSite:'lax',path:'/',maxAge:7*86400_000});

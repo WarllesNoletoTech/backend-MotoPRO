@@ -18,6 +18,7 @@ import {goalsRouter} from './routes/goals.js';
 import {assistantRouter} from './routes/assistant.js';
 import {requireAuth} from './services/auth.js';
 import {requirePremium} from './services/premium.js';
+import {requireCompleteName} from './services/completeName.js';
 import {accountRouter} from './routes/account.js';
 import {integrationsRouter} from './routes/integrations.js';
 
@@ -51,7 +52,7 @@ async function bootstrap(){
  app.use('/api/moto',requireAuth,requirePremium,motoRouter);
  app.use('/api/goals',requireAuth,requirePremium,goalsRouter);
  app.use('/api/assistant',requireAuth,requirePremium,assistantRouter);
- app.use('/api/integrations',requireAuth,integrationsRouter);
+ app.use('/api/integrations',requireAuth,requireCompleteName,integrationsRouter);
  app.use((_req,res)=>res.status(404).json({error:'Rota não encontrada'}));
  app.use(errorHandler);
  app.listen(config.port,()=>console.log(`MotoPRO API: http://localhost:${config.port}`));

@@ -17,21 +17,21 @@ export function pixPaymentConfig(){
  const enabled=process.env.MP_BILLING_ENABLED==='true' && !!token && !!secret;
  return {token,secret,enabled};
 }
-export async function mpPix<T>(method:'GET'|'POST',path:string,payload?:unknown,idempotencyKey?:string):Promise<T>{
+export async function mpPix<T>(method:'GET'|'POST',path:string,payload?:unknown,idempotencyKey?:string,deviceId?:string):Promise<T>{
  const {token}=pixPaymentConfig();
  if(!token)throw new HttpError(503,'Credenciais do Pix não configuradas');
- return requestMp<T>(token,method,path,payload,idempotencyKey);
+ return requestMp<T>(token,method,path,payload,idempotencyKey,deviceId);
 }
 export async function mp<T>(method:'GET'|'POST'|'PUT',path:string,payload?:unknown,idempotencyKey?:string):Promise<T>{
  const {token}=paymentConfig();
  return requestMp<T>(token,method,path,payload,idempotencyKey);
 }
-async function requestMp<T>(token:string,method:'GET'|'POST'|'PUT',path:string,payload?:unknown,idempotencyKey?:string):Promise<T>{
+async function requestMp<T>(token:string,method:'GET'|'POST'|'PUT',path:string,payload?:unknown,idempotencyKey?:string,deviceId?:string):Promise<T>{
  if(!token)throw new HttpError(503,'Integração Mercado Pago não configurada');
  const controller=new AbortController();
  const t=setTimeout(()=>controller.abort(),12_000);
  try {
-  const r=await fetch(`${API}${path}`,{method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json',...(idempotencyKey?{'X-Idempotency-Key':idempotencyKey}:{})},...(payload?{body:JSON.stringify(payload)}:{}),signal:controller.signal});
+  const r=await fetch(`${API}${path}`,{method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json',...(idempotencyKey?{'X-Idempotency-Key':idempotencyKey}:{}),...(deviceId&&/^[A-Za-z0-9._:-]{10,200}$/.test(deviceId)?{'X-meli-session-id':deviceId}:{})},...(payload?{body:JSON.stringify(payload)}:{}),signal:controller.signal});
   const data:unknown=await r.json().catch(()=>({}));
   if(!r.ok){
    const msg=(typeof data==='object' && data!==null && 'message' in data)?String((data as {message?:unknown}).message):'';

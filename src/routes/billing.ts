@@ -7,6 +7,9 @@ import {User} from '../models/User.js';
 import {getAdminSettings} from '../models/AdminSetting.js';
 import {CourtesyGrant} from '../models/CourtesyGrant.js';
 import {uid} from '../services/auth.js';
+import {requireCompleteName} from '../services/completeName.js';
+import {nameParts} from '../utils/name.js';
+import {makePixOrderPayload} from '../services/pixOrderPayload.js';
 import {asyncRoute,HttpError} from '../utils/http.js';
 import {mp,mpPix,paymentConfig,pixPaymentConfig,MpPixOrder,MpSubscription} from '../services/mercadoPago.js';
 import {syncPixPayment,syncPixOrder,syncCreditSubscription} from '../services/billing.js';
@@ -49,10 +52,12 @@ billingRouter.get('/me',asyncRoute(async(req,res)=>{
   latestPix:latestPix?{id:String(latestPix._id),status:latestPix.status,amountCents:latestPix.amountCents,paidAt:latestPix.paidAt??null}:null
  });
 }));
-billingRouter.post('/pix',asyncRoute(async(req,res)=>{
+billingRouter.post('/pix',requireCompleteName,asyncRoute(async(req,res)=>{
  if(!pixPaymentConfig().enabled)throw new HttpError(503,'Pix de teste ainda não configurado');
  const userId=new mongoose.Types.ObjectId(uid(req));
- const user=await User.findById(userId).select('email');if(!user)throw new HttpError(401,'Conta inválida');
+ const user=await User.findById(userId).select('name firstName lastName email createdAt phone');if(!user)throw new HttpError(401,'Conta inválida');
+ const buyer=nameParts(user.name);
+ if(!buyer.complete)throw new HttpError(428,'Complete seu nome e sobrenome antes de gerar o Pix.');
  const [existingSub,existingCourtesy]=await Promise.all([
   BillingSubscription.findOne({userId}).select('activeUntil status').lean(),
   CourtesyGrant.findOne({userId,activeUntil:{$gt:new Date()}}).select('activeUntil').lean()
@@ -68,15 +73,11 @@ billingRouter.post('/pix',asyncRoute(async(req,res)=>{
  const priceCents=(await getAdminSettings()).weeklyPriceCents;
  // Reaproveita a mesma chave de idempotência se a chamada anterior tiver falhado/expirado no transporte.
  const pay=existing??await BillingPayment.create({userId,method:'pix',status:'pending',amountCents:priceCents,idempotencyKey:randomUUID(),expiresAt:expires});
- const amount=(pay.amountCents/100).toFixed(2);
  const order=pay.providerOrderId
   ? await mpPix<MpPixOrder>('GET',`/v1/orders/${encodeURIComponent(pay.providerOrderId)}`)
   : await mpPix<MpPixOrder>('POST','/v1/orders',{
-   type:'online',total_amount:amount,external_reference:`motopro_pix_${String(pay._id)}`,
-   processing_mode:'automatic',
-   transactions:{payments:[{amount,payment_method:{id:'pix',type:'bank_transfer'},expiration_time:'PT30M'}]},
-   payer:{email:user.email}
-  },pay.idempotencyKey);
+   ...makePixOrderPayload(String(pay._id),pay.amountCents,user.email,user.name,user.firstName,user.lastName)
+  },pay.idempotencyKey,typeof req.header('x-mp-device-id')==='string'?req.header('x-mp-device-id'):undefined);
  if(!order.id || !/^ORD[0-9A-Za-z]+$/.test(order.id))throw new HttpError(502,'Mercado Pago não retornou uma order válida');
  if(order.external_reference!==`motopro_pix_${String(pay._id)}`)throw new HttpError(502,'Referência da cobrança Pix divergente');
  pay.providerOrderId=order.id;
