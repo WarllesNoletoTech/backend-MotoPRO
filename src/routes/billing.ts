@@ -10,18 +10,17 @@ import {uid} from '../services/auth.js';
 import {asyncRoute,HttpError} from '../utils/http.js';
 import {mp,mpPix,paymentConfig,pixPaymentConfig,MpPixOrder,MpSubscription} from '../services/mercadoPago.js';
 import {syncPixPayment,syncPixOrder,syncCreditSubscription} from '../services/billing.js';
-import {resolveCreditPayerEmail} from '../services/creditTestPayer.js';
 
 export const billingRouter=Router();
-const makePlan=(priceCents:number)=>({priceCents,currency:'BRL',frequency:7,frequencyUnit:'days',methods:['pix','credit'] as const,pixAutomaticAvailable:false});
-billingRouter.get('/plan',asyncRoute(async(_req,res)=>res.json({plan:makePlan((await getAdminSettings()).weeklyPriceCents),billingEnabled:paymentConfig().enabled||pixPaymentConfig().enabled})));
+const makePlan=(priceCents:number)=>({priceCents,currency:'BRL',frequency:7,frequencyUnit:'days',methods:['pix'] as const,pixAutomaticAvailable:false});
+billingRouter.get('/plan',asyncRoute(async(_req,res)=>res.json({plan:makePlan((await getAdminSettings()).weeklyPriceCents),billingEnabled:pixPaymentConfig().enabled})));
 billingRouter.get('/me',asyncRoute(async(req,res)=>{
  const userId=new mongoose.Types.ObjectId(uid(req));
  const sub=await BillingSubscription.findOne({userId}).lean();
  const payment=await BillingPayment.findOne({userId,method:'pix',status:'pending'}).sort({createdAt:-1}).lean();
  const active=!!sub?.activeUntil && new Date(sub.activeUntil)>new Date();
  const [settings,courtesy]=await Promise.all([getAdminSettings(),CourtesyGrant.findOne({userId,activeUntil:{$gt:new Date()}}).select('activeUntil').lean()]);
- res.json({plan:makePlan(settings.weeklyPriceCents),courtesyUntil:courtesy?.activeUntil??null,billingEnabled:paymentConfig().enabled||pixPaymentConfig().enabled,subscription:sub?{method:sub.method,status:sub.status,activeUntil:sub.activeUntil,cancelAtPeriodEnd:sub.cancelAtPeriodEnd,active}:null,pendingPix:payment?{id:String(payment._id),code:payment.pixCode,qrCodeBase64:payment.pixQrBase64,ticketUrl:payment.pixTicketUrl,expiresAt:payment.expiresAt}:null});
+ res.json({plan:makePlan(settings.weeklyPriceCents),courtesyUntil:courtesy?.activeUntil??null,billingEnabled:pixPaymentConfig().enabled,subscription:sub?{method:sub.method,status:sub.status,activeUntil:sub.activeUntil,cancelAtPeriodEnd:sub.cancelAtPeriodEnd,active}:null,pendingPix:payment?{id:String(payment._id),code:payment.pixCode,qrCodeBase64:payment.pixQrBase64,ticketUrl:payment.pixTicketUrl,expiresAt:payment.expiresAt}:null});
 }));
 billingRouter.post('/pix',asyncRoute(async(req,res)=>{
  if(!pixPaymentConfig().enabled)throw new HttpError(503,'Pix de teste ainda não configurado');
@@ -55,24 +54,10 @@ billingRouter.post('/pix',asyncRoute(async(req,res)=>{
  if(!pay.pixCode)throw new HttpError(503,'Pix ainda em processamento. Use Verificar confirmação em instantes.');
  res.status(201).json({paymentId:String(pay._id),pixCode:pay.pixCode,qrCodeBase64:pay.pixQrBase64,ticketUrl:pay.pixTicketUrl,expiresAt:pay.expiresAt});
 }));
-billingRouter.post('/credit',asyncRoute(async(req,res)=>{
- const cfg=paymentConfig();if(!cfg.enabled)throw new HttpError(503,'Pagamentos ainda em homologação');
- const userId=new mongoose.Types.ObjectId(uid(req));
- const user=await User.findById(userId).select('email role');if(!user)throw new HttpError(401,'Conta inválida');
- const old=await BillingSubscription.findOne({userId,method:'credit'});
- if(old?.providerSubscriptionId && !old.cancelAtPeriodEnd)throw new HttpError(409,'Já existe uma assinatura de cartão; verifique seu status ou cancele primeiro');
- const priceCents=(await getAdminSettings()).weeklyPriceCents;
- const result=await mp<MpSubscription&{init_point?:string}>('POST','/preapproval',{
-  reason:`MotoPRO Premium - R$ ${(priceCents/100).toFixed(2).replace('.',',')} por semana`,payer_email:resolveCreditPayerEmail(user,{testMode:process.env.MP_CREDIT_TEST_MODE,testPayerEmail:process.env.MP_CREDIT_TEST_PAYER_EMAIL,enforcePremium:process.env.MP_ENFORCE_PREMIUM}),
-  external_reference:`motopro_credit_${String(userId)}`,
-  auto_recurring:{frequency:7,frequency_type:'days',transaction_amount:priceCents/100,currency_id:'BRL'},
-  back_url:`${cfg.front}/app/assinatura`,status:'pending',
-  notification_url:`${cfg.origin.replace(/\/$/,'')}/api/webhooks/mercadopago`
- });
- if(!result.id||!result.init_point)throw new HttpError(502,'Mercado Pago não retornou link de autorização');
- await BillingSubscription.findOneAndUpdate({userId},{$set:{method:'credit',status:'pending',priceCents,providerSubscriptionId:result.id,cancelAtPeriodEnd:false}},{upsert:true,new:true,runValidators:true});
- res.status(201).json({checkoutUrl:result.init_point});
-}));
+// Cartão de crédito desativado nesta fase. A rota permanece para negar clientes antigos.
+billingRouter.post('/credit',(_req,res)=>{
+ res.status(410).json({error:'Assinaturas por cartão indisponíveis. Utilize o Pix semanal.'});
+});
 billingRouter.post('/refresh',asyncRoute(async(req,res)=>{
  const userId=new mongoose.Types.ObjectId(uid(req));
  const pay=await BillingPayment.findOne({userId,method:'pix',status:'pending'}).sort({createdAt:-1});

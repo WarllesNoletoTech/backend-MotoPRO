@@ -10,7 +10,7 @@ import {AdminSetting,getAdminSettings} from '../models/AdminSetting.js';
 import {User} from '../models/User.js';
 import {uid} from '../services/auth.js';
 import {asyncRoute,HttpError} from '../utils/http.js';
-import {paymentConfig} from '../services/mercadoPago.js';
+import {pixPaymentConfig} from '../services/mercadoPago.js';
 
 export const adminBillingRouter=Router();
 adminBillingRouter.use(asyncRoute(async(req,_res,next)=>{
@@ -48,7 +48,7 @@ adminBillingRouter.get('/overview',asyncRoute(async(_req,res)=>{
  res.json({users,blockedUsers:blocked,activeSubscribers:active,activeCourtesy,
   receivedCents:approved[0]?.sum||0,approvedPayments:approved[0]?.count||0,
   weeklyPriceCents:settings.weeklyPriceCents,
-  billingEnabled:paymentConfig().enabled,
+  billingEnabled:pixPaymentConfig().enabled,
   monthlyCampaign:{status:'planning',message:'Campanhas não aleatórias, com critérios objetivos e regulamento aprovado. Sorteios não são executados pelo MotoPRO.'}});
 }));
 
@@ -131,7 +131,7 @@ adminBillingRouter.get('/payments',asyncRoute(async(req,res)=>{
 }));
 
 adminBillingRouter.get('/settings',asyncRoute(async(_req,res)=>{
- res.json({settings:await getAdminSettings(),billingEnabled:paymentConfig().enabled});
+ res.json({settings:await getAdminSettings(),billingEnabled:pixPaymentConfig().enabled});
 }));
 const settingsInput=z.object({weeklyPriceCents:z.number().int().min(199).max(99900),trialDays:z.number().int().min(0).max(30),
  newRegistrationsOpen:z.boolean(),announcement:z.string().trim().max(500),maintenanceNotice:z.string().trim().max(500),
@@ -140,7 +140,7 @@ adminBillingRouter.patch('/settings',asyncRoute(async(req,res)=>{
  const data=settingsInput.parse(req.body);const previous=await getAdminSettings();
  await AdminSetting.findOneAndUpdate({key:'global'},{$set:data,$setOnInsert:{key:'global'}},{upsert:true,new:true,runValidators:true});
  await audit(uid(req),'settings.update',undefined,{previousPrice:previous.weeklyPriceCents,newPrice:data.weeklyPriceCents,trialDays:data.trialDays,registrations:data.newRegistrationsOpen});
- res.json({settings:await getAdminSettings(),warning:'A alteração do preço aplica-se apenas a novas cobranças; recorrências existentes mantêm o preço contratado.'});
+ res.json({settings:await getAdminSettings(),warning:'A alteração do preço se aplica somente aos próximos Pix; cobranças anteriores não são modificadas.'});
 }));
 
 const campaignCreate=z.object({title:z.string().trim().min(4).max(100),description:z.string().trim().min(10).max(1200),
