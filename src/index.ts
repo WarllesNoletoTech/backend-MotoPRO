@@ -18,6 +18,7 @@ import {goalsRouter} from './routes/goals.js';
 import {assistantRouter} from './routes/assistant.js';
 import {requireAuth} from './services/auth.js';
 import {requirePremium} from './services/premium.js';
+import {accountRouter} from './routes/account.js';
 
 async function bootstrap(){
  validateConfig();
@@ -42,13 +43,14 @@ async function bootstrap(){
  app.use('/api/webhooks/mercadopago',mercadoPagoWebhookRouter);
  app.use('/api/billing',requireAuth,billingRouter);
  app.use('/api/admin/billing',requireAuth,adminBillingRouter);
- app.get('/api/campaigns',requireAuth,async(_req,res,next)=>{try{const docs=await RewardCampaign.find({status:{$in:['published','closed']}}).sort({createdAt:-1}).limit(30).select('title description reward objectiveCriteria startsAt endsAt status resultSummary').lean();res.json({items:docs});}catch(err){next(err);}});
- app.use('/api/dashboard',requireAuth,dashboardRouter);
- app.use('/api/entries',requireAuth,entriesRouter);
- app.use('/api/moto',requireAuth,motoRouter);
- app.use('/api/goals',requireAuth,goalsRouter);
+ app.use('/api/account',requireAuth,accountRouter); // Dados próprios disponíveis mesmo após vencimento.
+ app.get('/api/campaigns',requireAuth,requirePremium,async(_req,res,next)=>{try{const docs=await RewardCampaign.find({status:{$in:['published','closed']}}).sort({createdAt:-1}).limit(30).select('title description reward objectiveCriteria startsAt endsAt status resultSummary').lean();res.json({items:docs});}catch(err){next(err);}});
+ app.use('/api/dashboard',requireAuth,requirePremium,dashboardRouter);
+ app.use('/api/entries',requireAuth,requirePremium,entriesRouter);
+ app.use('/api/moto',requireAuth,requirePremium,motoRouter);
+ app.use('/api/goals',requireAuth,requirePremium,goalsRouter);
  app.use('/api/assistant',requireAuth,requirePremium,assistantRouter);
- app.get('/api/integrations',requireAuth,(_req,res)=>res.json({providers:[
+ app.get('/api/integrations',requireAuth,requirePremium,(_req,res)=>res.json({providers:[
   {id:'rappidex',name:'Rappidex',status:'pending_agreement'},
   {id:'ifood',name:'iFood',status:'not_available'}
  ]}));

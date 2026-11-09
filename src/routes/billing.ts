@@ -11,6 +11,7 @@ import {asyncRoute,HttpError} from '../utils/http.js';
 import {mp,mpPix,paymentConfig,pixPaymentConfig,MpPixOrder,MpSubscription} from '../services/mercadoPago.js';
 import {syncPixPayment,syncPixOrder,syncCreditSubscription} from '../services/billing.js';
 import {subscriptionNotice} from '../utils/subscriptionLifecycle.js';
+import {premiumEnforced,premiumEntitled} from '../services/premium.js';
 
 export const billingRouter=Router();
 const makePlan=(priceCents:number)=>({priceCents,currency:'BRL',frequency:7,frequencyUnit:'days',methods:['pix'] as const,pixAutomaticAvailable:false});
@@ -29,7 +30,7 @@ billingRouter.get('/me',asyncRoute(async(req,res)=>{
  if(sub?.status==='active' && sub.activeUntil && new Date(sub.activeUntil)<=now){
   await BillingSubscription.updateOne({_id:sub._id,status:'active',activeUntil:{$lte:now}},{$set:{status:'expired'}});
  }
- const user=await User.findById(userId).select('trialEndsAt').lean();
+ const user=await User.findById(userId).select('trialEndsAt role').lean();
  const notice=subscriptionNotice({paidUntil:sub?.activeUntil,trialUntil:user?.trialEndsAt,courtesyUntil:courtesy?.activeUntil},now);
  const active=!!sub?.activeUntil && new Date(sub.activeUntil)>now;
  res.setHeader('Cache-Control','private, no-store');
@@ -38,6 +39,7 @@ billingRouter.get('/me',asyncRoute(async(req,res)=>{
   billingEnabled:pixPaymentConfig().enabled,
   subscription:sub?{method:sub.method,status:active?sub.status:(sub.status==='active'?'expired':sub.status),activeUntil:sub.activeUntil,cancelAtPeriodEnd:sub.cancelAtPeriodEnd,active}:null,
   notice,renewalAllowed:notice.renewalAllowed,
+  access:{premiumRequired:premiumEnforced(),allowed:!premiumEnforced()||user?.role==='admin'||premiumEntitled(notice.status)},
   pendingPix:payment?{id:String(payment._id),code:payment.pixCode,qrCodeBase64:payment.pixQrBase64,ticketUrl:payment.pixTicketUrl,expiresAt:payment.expiresAt}:null,
   // Estado obtido do MongoDB APÓS conciliação com o Mercado Pago, nunca do navegador.
   latestPix:latestPix?{id:String(latestPix._id),status:latestPix.status,amountCents:latestPix.amountCents,paidAt:latestPix.paidAt??null}:null
