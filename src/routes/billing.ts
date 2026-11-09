@@ -35,6 +35,7 @@ billingRouter.get('/me',asyncRoute(async(req,res)=>{
  const active=!!sub?.activeUntil && new Date(sub.activeUntil)>now;
  res.setHeader('Cache-Control','private, no-store');
  res.json({
+  contractVersion:2,
   plan:makePlan(settings.weeklyPriceCents),courtesyUntil:courtesy?.activeUntil??null,
   billingEnabled:pixPaymentConfig().enabled,
   subscription:sub?{method:sub.method,status:active?sub.status:(sub.status==='active'?'expired':sub.status),activeUntil:sub.activeUntil,cancelAtPeriodEnd:sub.cancelAtPeriodEnd,active}:null,
