@@ -10,6 +10,7 @@ import {uid} from '../services/auth.js';
 import {asyncRoute,HttpError} from '../utils/http.js';
 import {mp,mpPix,paymentConfig,pixPaymentConfig,MpPixOrder,MpSubscription} from '../services/mercadoPago.js';
 import {syncPixPayment,syncPixOrder,syncCreditSubscription} from '../services/billing.js';
+import {subscriptionNotice} from '../utils/subscriptionLifecycle.js';
 
 export const billingRouter=Router();
 const makePlan=(priceCents:number)=>({priceCents,currency:'BRL',frequency:7,frequencyUnit:'days',methods:['pix'] as const,pixAutomaticAvailable:false});
@@ -23,12 +24,20 @@ billingRouter.get('/me',asyncRoute(async(req,res)=>{
   getAdminSettings(),
   CourtesyGrant.findOne({userId,activeUntil:{$gt:new Date()}}).select('activeUntil').lean()
  ]);
- const active=!!sub?.activeUntil && new Date(sub.activeUntil)>new Date();
+ const now=new Date();
+ // O prazo é autoridade; status gravado não pode manter uma assinatura expirada ativa.
+ if(sub?.status==='active' && sub.activeUntil && new Date(sub.activeUntil)<=now){
+  await BillingSubscription.updateOne({_id:sub._id,status:'active',activeUntil:{$lte:now}},{$set:{status:'expired'}});
+ }
+ const user=await User.findById(userId).select('trialEndsAt').lean();
+ const notice=subscriptionNotice({paidUntil:sub?.activeUntil,trialUntil:user?.trialEndsAt,courtesyUntil:courtesy?.activeUntil},now);
+ const active=!!sub?.activeUntil && new Date(sub.activeUntil)>now;
  res.setHeader('Cache-Control','private, no-store');
  res.json({
   plan:makePlan(settings.weeklyPriceCents),courtesyUntil:courtesy?.activeUntil??null,
   billingEnabled:pixPaymentConfig().enabled,
-  subscription:sub?{method:sub.method,status:sub.status,activeUntil:sub.activeUntil,cancelAtPeriodEnd:sub.cancelAtPeriodEnd,active}:null,
+  subscription:sub?{method:sub.method,status:active?sub.status:(sub.status==='active'?'expired':sub.status),activeUntil:sub.activeUntil,cancelAtPeriodEnd:sub.cancelAtPeriodEnd,active}:null,
+  notice,renewalAllowed:notice.renewalAllowed,
   pendingPix:payment?{id:String(payment._id),code:payment.pixCode,qrCodeBase64:payment.pixQrBase64,ticketUrl:payment.pixTicketUrl,expiresAt:payment.expiresAt}:null,
   // Estado obtido do MongoDB APÓS conciliação com o Mercado Pago, nunca do navegador.
   latestPix:latestPix?{id:String(latestPix._id),status:latestPix.status,amountCents:latestPix.amountCents,paidAt:latestPix.paidAt??null}:null
@@ -38,6 +47,13 @@ billingRouter.post('/pix',asyncRoute(async(req,res)=>{
  if(!pixPaymentConfig().enabled)throw new HttpError(503,'Pix de teste ainda não configurado');
  const userId=new mongoose.Types.ObjectId(uid(req));
  const user=await User.findById(userId).select('email');if(!user)throw new HttpError(401,'Conta inválida');
+ const [existingSub,existingCourtesy]=await Promise.all([
+  BillingSubscription.findOne({userId}).select('activeUntil status').lean(),
+  CourtesyGrant.findOne({userId,activeUntil:{$gt:new Date()}}).select('activeUntil').lean()
+ ]);
+ // Pix é permitido nos últimos 2 dias do plano, preservando os dias restantes.
+ const renewal=subscriptionNotice({paidUntil:existingSub?.activeUntil,courtesyUntil:existingCourtesy?.activeUntil});
+ if(!renewal.renewalAllowed)throw new HttpError(409,'Seu Premium ainda está ativo. A renovação fica disponível nas últimas 48 horas.');
  const recurring=await BillingSubscription.findOne({userId,method:'credit',providerSubscriptionId:{$exists:true},cancelAtPeriodEnd:false});
  if(recurring)throw new HttpError(409,'Cancele sua assinatura automática antes de utilizar Pix avulso');
  const expires=new Date(Date.now()+30*60*1000);

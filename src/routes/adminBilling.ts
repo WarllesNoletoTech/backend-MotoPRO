@@ -11,6 +11,7 @@ import {User} from '../models/User.js';
 import {uid} from '../services/auth.js';
 import {asyncRoute,HttpError} from '../utils/http.js';
 import {pixPaymentConfig} from '../services/mercadoPago.js';
+import {REMINDER_WINDOW_MS} from '../utils/subscriptionLifecycle.js';
 
 export const adminBillingRouter=Router();
 adminBillingRouter.use(asyncRoute(async(req,_res,next)=>{
@@ -38,14 +39,18 @@ const escapeRegex=(s:string)=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
 
 adminBillingRouter.get('/overview',asyncRoute(async(_req,res)=>{
  const now=new Date();
- const [users,blocked,active,activeCourtesy,approved,settings]=await Promise.all([
+ // Corrige registros antigos mesmo sem acesso recente do motoboy.
+ await BillingSubscription.updateMany({status:'active',activeUntil:{$lte:now}},{$set:{status:'expired'}});
+ const [users,blocked,active,expiring,expired,activeCourtesy,approved,settings]=await Promise.all([
   User.countDocuments({role:'driver'}),User.countDocuments({role:'driver',blockedAt:{$ne:null}}),
   BillingSubscription.countDocuments({status:'active',activeUntil:{$gt:now}}),
+  BillingSubscription.countDocuments({status:'active',activeUntil:{$gt:now,$lte:new Date(now.getTime()+REMINDER_WINDOW_MS)}}),
+  BillingSubscription.countDocuments({status:'expired'}),
   CourtesyGrant.countDocuments({activeUntil:{$gt:now}}),
   BillingPayment.aggregate<{_id:null;sum:number;count:number}>([{$match:{status:'approved'}},{$group:{_id:null,sum:{$sum:'$amountCents'},count:{$sum:1}}}]),
   getAdminSettings()
  ]);
- res.json({users,blockedUsers:blocked,activeSubscribers:active,activeCourtesy,
+ res.json({users,blockedUsers:blocked,activeSubscribers:active,expiringSubscribers:expiring,expiredSubscribers:expired,activeCourtesy,
   receivedCents:approved[0]?.sum||0,approvedPayments:approved[0]?.count||0,
   weeklyPriceCents:settings.weeklyPriceCents,
   billingEnabled:pixPaymentConfig().enabled,
@@ -84,8 +89,13 @@ adminBillingRouter.patch('/users/:id/access',asyncRoute(async(req,res)=>{
 
 adminBillingRouter.get('/subscriptions',asyncRoute(async(req,res)=>{
  const {page,limit}=pageParams(req.query);
- const status=z.enum(['all','pending','active','expired','canceled']).parse(req.query.status||'all');
- const filter:any={};if(status!=='all')filter.status=status;
+ const status=z.enum(['all','pending','active','expiring','expired','canceled']).parse(req.query.status||'all');
+ const now=new Date();
+ await BillingSubscription.updateMany({status:'active',activeUntil:{$lte:now}},{$set:{status:'expired'}});
+ const filter:any={};
+ if(status==='expiring'){filter.status='active';filter.activeUntil={$gt:now,$lte:new Date(now.getTime()+REMINDER_WINDOW_MS)};}
+ else if(status==='active'){filter.status='active';filter.activeUntil={$gt:now};}
+ else if(status!=='all')filter.status=status;
  const [total,items]=await Promise.all([BillingSubscription.countDocuments(filter),
   BillingSubscription.find(filter).sort({updatedAt:-1}).skip((page-1)*limit).limit(limit).lean()]);
  const ids=items.map(s=>s.userId);
@@ -93,7 +103,8 @@ adminBillingRouter.get('/subscriptions',asyncRoute(async(req,res)=>{
  res.json({page,limit,total,items:items.map(s=>({id:String(s._id),userId:String(s.userId),
   name:users.find(u=>String(u._id)===String(s.userId))?.name||'Conta indisponível',
   email:users.find(u=>String(u._id)===String(s.userId))?.email||'',
-  method:s.method,status:s.status,activeUntil:s.activeUntil||null,cancelAtPeriodEnd:s.cancelAtPeriodEnd||false,
+  method:s.method,status:s.status==='active' && s.activeUntil && new Date(s.activeUntil)<=new Date(now.getTime()+REMINDER_WINDOW_MS)?'expiring':s.status,
+  activeUntil:s.activeUntil||null,cancelAtPeriodEnd:s.cancelAtPeriodEnd||false,
   priceCents:s.priceCents||999
  }))});
 }));
