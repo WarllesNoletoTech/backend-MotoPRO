@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import {BillingPayment} from '../models/BillingPayment.js';
 import {BillingSubscription} from '../models/BillingSubscription.js';
-import {MpAuthorizedPayment,MpPix,MpSubscription,mp} from './mercadoPago.js';
+import {MpAuthorizedPayment,MpPix,MpPixOrder,MpSubscription,mp,mpPix} from './mercadoPago.js';
 
 // Somente confirmações consultadas diretamente na API do provedor liberam acesso.
 export async function applyApprovedPayment(userId:mongoose.Types.ObjectId,providerPaymentId:string,method:'pix'|'credit',until?:Date){
@@ -51,4 +51,37 @@ export async function syncCreditPayment(id:string){
   $set:{status:'approved',paidAt:new Date()}
  },{upsert:true,new:true,runValidators:true});
  await applyApprovedPayment(sub.userId,providerKey,'credit');
+}
+
+/** A notificação é apenas um aviso: sempre consultamos a order com o token do MotoPRO PIX. */
+export async function syncPixOrder(providerOrderId:string){
+ if(!/^ORD[0-9A-Za-z]+$/.test(providerOrderId))return;
+ const remote=await mpPix<MpPixOrder>('GET',`/v1/orders/${encodeURIComponent(providerOrderId)}`);
+ if(remote.id!==providerOrderId)return;
+ const match=/^motopro_pix_([a-f0-9]{24})$/.exec(remote.external_reference||'');
+ if(!match)return;
+ const pay=await BillingPayment.findById(match[1]);
+ if(!pay || pay.method!=='pix' || (pay.providerOrderId && pay.providerOrderId!==providerOrderId))return;
+ const tx=remote.transactions?.payments;
+ if(!tx || tx.length!==1 || tx[0].payment_method?.id!=='pix' || tx[0].payment_method?.type!=='bank_transfer' ||
+  Math.round(Number(tx[0].amount)*100)!==pay.amountCents ||
+  Math.round(Number(remote.total_amount)*100)!==pay.amountCents)return;
+ if(!pay.providerOrderId)pay.providerOrderId=providerOrderId;
+ const method=tx[0].payment_method;
+ pay.pixCode ||= method.qr_code;
+ pay.pixQrBase64 ||= method.qr_code_base64;
+ pay.pixTicketUrl ||= method.ticket_url;
+ if(remote.status==='processed' && remote.status_detail==='accredited' &&
+  tx[0].status==='processed' && tx[0].status_detail==='accredited'){
+  pay.status='approved';
+  pay.paidAt ||= new Date();
+  await pay.save();
+  await applyApprovedPayment(pay.userId,`pix_order_${providerOrderId}`,'pix');
+ } else if(remote.status==='refunded'){
+  pay.status='refunded';await pay.save();
+ } else if(['failed','canceled','charged_back'].includes(remote.status)){
+  pay.status=remote.status==='canceled'?'canceled':'rejected';await pay.save();
+ } else {
+  await pay.save();
+ }
 }
