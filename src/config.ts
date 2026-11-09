@@ -9,10 +9,10 @@ export const config = {
   transcriptionModel: process.env.OPENAI_TRANSCRIPTION_MODEL || 'gpt-4o-mini-transcribe'
 };
 export function validateConfig() {
-  if(config.jwtSecret.length < 32) throw new Error('JWT_SECRET precisa ter pelo menos 32 caracteres. Execute CONFIGURAR_WINDOWS.bat.');
+  if(config.jwtSecret.length < 32) throw new Error('JWT_SECRET precisa ter pelo menos 32 caracteres. Configure uma chave aleatória no Heroku (ou no .env local).');
   if(!/^mongodb(\+srv)?:\/\//.test(config.mongoUri) || /HOST_REAL_DO_ATLAS|SEU-CLUSTER|SENHA_ATUALIZADA|CLUSTER\.mongodb/i.test(config.mongoUri)) {
-    throw new Error('MONGODB_URI nao configurada corretamente. Execute CONFIGURAR_WINDOWS.bat.');
+    throw new Error('MONGODB_URI inválida. Configure o valor real nas variáveis do Heroku (ou no .env local).');
   }
-  if(!Number.isFinite(config.port)) throw new Error('PORT inválida');
+  if(!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) throw new Error('PORT inválida');
   if(config.isProd && !config.appOrigin.startsWith('https://')) throw new Error('APP_ORIGIN deve ser HTTPS em produção');
 }

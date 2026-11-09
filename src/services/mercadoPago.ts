@@ -1,0 +1,39 @@
+import {createHmac,timingSafeEqual} from 'node:crypto';
+import {HttpError} from '../utils/http.js';
+
+const API='https://api.mercadopago.com';
+export const PREMIUM_CENTS=999;
+export const premiumPriceBRL=9.99;
+export function paymentConfig(){
+ const token=process.env.MP_ACCESS_TOKEN || '';
+ const secret=process.env.MP_WEBHOOK_SECRET || '';
+ const origin=process.env.MP_PUBLIC_ORIGIN || '';
+ const front=process.env.APP_ORIGIN || '';
+ return {token,secret,origin,front,enabled:process.env.MP_BILLING_ENABLED==='true' && !!token && !!secret && origin.startsWith('https://')};
+}
+export async function mp<T>(method:'GET'|'POST'|'PUT',path:string,payload?:unknown,idempotencyKey?:string):Promise<T>{
+ const {token}=paymentConfig();
+ if(!token)throw new HttpError(503,'Integração Mercado Pago não configurada');
+ const controller=new AbortController();
+ const t=setTimeout(()=>controller.abort(),12_000);
+ try {
+  const r=await fetch(`${API}${path}`,{method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json',...(idempotencyKey?{'X-Idempotency-Key':idempotencyKey}:{})},...(payload?{body:JSON.stringify(payload)}:{}),signal:controller.signal});
+  const data:unknown=await r.json().catch(()=>({}));
+  if(!r.ok){console.error('Mercado Pago falhou',r.status,JSON.stringify(data).slice(0,350));throw new HttpError(502,'Mercado Pago indisponível; tente novamente');}
+  return data as T;
+ } finally {clearTimeout(t);}
+}
+export function verifyMercadoPagoSignature(signature:string|undefined,requestId:string|undefined,dataId:string|undefined,secret:string,now=Date.now()):boolean{
+ if(!signature||!requestId||!dataId||!secret)return false;
+ const parts=Object.fromEntries(signature.split(',').map(part=>part.trim().split('=',2)));
+ const ts=parts.ts,v1=parts.v1;
+ if(!ts||!v1||!/^\d{10,13}$/.test(ts)||!/^[a-fA-F0-9]{64}$/.test(v1))return false;
+ const sent=Number(ts)*(ts.length===10?1000:1);
+ if(!Number.isFinite(sent)||Math.abs(now-sent)>5*60*1000)return false;
+ const manifest=`id:${dataId.toLowerCase()};request-id:${requestId};ts:${ts};`;
+ const expected=createHmac('sha256',secret).update(manifest).digest();
+ return timingSafeEqual(Buffer.from(v1,'hex'),expected);
+}
+export type MpPix={id:number|string;status:string;transaction_details?:{external_resource_url?:string};point_of_interaction?:{transaction_data?:{qr_code?:string;qr_code_base64?:string;ticket_url?:string}};date_of_expiration?:string;external_reference?:string;transaction_amount?:number;payment_method_id?:string;preapproval_id?:string};
+export type MpSubscription={id:string;status:string;external_reference?:string};
+export type MpAuthorizedPayment={id:string|number;status:string;preapproval_id?:string;transaction_amount?:number;payment?:{id?:string|number;status?:string};};

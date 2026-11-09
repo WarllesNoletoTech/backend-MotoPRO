@@ -1,0 +1,75 @@
+import {Router} from 'express';
+import {randomUUID} from 'node:crypto';
+import mongoose from 'mongoose';
+import {BillingPayment} from '../models/BillingPayment.js';
+import {BillingSubscription} from '../models/BillingSubscription.js';
+import {User} from '../models/User.js';
+import {uid} from '../services/auth.js';
+import {asyncRoute,HttpError} from '../utils/http.js';
+import {mp,paymentConfig,PREMIUM_CENTS,premiumPriceBRL,MpPix,MpSubscription} from '../services/mercadoPago.js';
+import {syncPixPayment,syncCreditSubscription} from '../services/billing.js';
+
+export const billingRouter=Router();
+const plan={priceCents:PREMIUM_CENTS,currency:'BRL',frequency:7,frequencyUnit:'days',methods:['pix','credit'] as const,pixAutomaticAvailable:false};
+billingRouter.get('/plan',(_req,res)=>res.json({plan,billingEnabled:paymentConfig().enabled}));
+billingRouter.get('/me',asyncRoute(async(req,res)=>{
+ const userId=new mongoose.Types.ObjectId(uid(req));
+ const sub=await BillingSubscription.findOne({userId}).lean();
+ const payment=await BillingPayment.findOne({userId,method:'pix',status:'pending'}).sort({createdAt:-1}).lean();
+ const active=!!sub?.activeUntil && new Date(sub.activeUntil)>new Date();
+ res.json({plan,billingEnabled:paymentConfig().enabled,subscription:sub?{method:sub.method,status:sub.status,activeUntil:sub.activeUntil,cancelAtPeriodEnd:sub.cancelAtPeriodEnd,active}:null,pendingPix:payment?{id:String(payment._id),code:payment.pixCode,qrCodeBase64:payment.pixQrBase64,ticketUrl:payment.pixTicketUrl,expiresAt:payment.expiresAt}:null});
+}));
+billingRouter.post('/pix',asyncRoute(async(req,res)=>{
+ const cfg=paymentConfig();if(!cfg.enabled)throw new HttpError(503,'Pagamentos ainda em homologação');
+ const userId=new mongoose.Types.ObjectId(uid(req));
+ const user=await User.findById(userId).select('email');if(!user)throw new HttpError(401,'Conta inválida');
+ const recurring=await BillingSubscription.findOne({userId,method:'credit',providerSubscriptionId:{$exists:true},cancelAtPeriodEnd:false});
+ if(recurring)throw new HttpError(409,'Cancele sua assinatura automática antes de utilizar Pix avulso');
+ const existing=await BillingPayment.findOne({userId,method:'pix',status:'pending',expiresAt:{$gt:new Date()}}).sort({createdAt:-1});
+ if(existing?.pixCode)return res.json({paymentId:String(existing._id),pixCode:existing.pixCode,qrCodeBase64:existing.pixQrBase64,ticketUrl:existing.pixTicketUrl,expiresAt:existing.expiresAt});
+ const pay=await BillingPayment.create({userId,method:'pix',status:'pending',amountCents:PREMIUM_CENTS,idempotencyKey:randomUUID()});
+ const expires=new Date(Date.now()+30*60*1000);
+ const result=await mp<MpPix>('POST','/v1/payments',{
+  transaction_amount:premiumPriceBRL,description:'MotoPRO Premium - acesso por 7 dias',payment_method_id:'pix',
+  payer:{email:user.email},external_reference:`motopro_pix_${String(pay._id)}`,
+  date_of_expiration:expires.toISOString(),notification_url:`${cfg.origin.replace(/\/$/,'')}/api/webhooks/mercadopago`
+ },pay.idempotencyKey);
+ const data=result.point_of_interaction?.transaction_data;
+ pay.providerPaymentId=String(result.id);pay.pixCode=data?.qr_code;pay.pixQrBase64=data?.qr_code_base64;
+ pay.pixTicketUrl=data?.ticket_url;pay.expiresAt=expires;await pay.save();
+ res.status(201).json({paymentId:String(pay._id),pixCode:pay.pixCode,qrCodeBase64:pay.pixQrBase64,ticketUrl:pay.pixTicketUrl,expiresAt:pay.expiresAt});
+}));
+billingRouter.post('/credit',asyncRoute(async(req,res)=>{
+ const cfg=paymentConfig();if(!cfg.enabled)throw new HttpError(503,'Pagamentos ainda em homologação');
+ const userId=new mongoose.Types.ObjectId(uid(req));
+ const user=await User.findById(userId).select('email');if(!user)throw new HttpError(401,'Conta inválida');
+ const old=await BillingSubscription.findOne({userId,method:'credit'});
+ if(old?.providerSubscriptionId && !old.cancelAtPeriodEnd)throw new HttpError(409,'Já existe uma assinatura de cartão; verifique seu status ou cancele primeiro');
+ const result=await mp<MpSubscription&{init_point?:string}>('POST','/preapproval',{
+  reason:'MotoPRO Premium - R$ 9,99 por semana',payer_email:user.email,
+  external_reference:`motopro_credit_${String(userId)}`,
+  auto_recurring:{frequency:1,frequency_type:'weeks',transaction_amount:premiumPriceBRL,currency_id:'BRL'},
+  back_url:`${cfg.front}/app/assinatura`,status:'pending',
+  notification_url:`${cfg.origin.replace(/\/$/,'')}/api/webhooks/mercadopago`
+ });
+ if(!result.id||!result.init_point)throw new HttpError(502,'Mercado Pago não retornou link de autorização');
+ await BillingSubscription.findOneAndUpdate({userId},{$set:{method:'credit',status:'pending',providerSubscriptionId:result.id,cancelAtPeriodEnd:false}},{upsert:true,new:true,runValidators:true});
+ res.status(201).json({checkoutUrl:result.init_point});
+}));
+billingRouter.post('/refresh',asyncRoute(async(req,res)=>{
+ const userId=new mongoose.Types.ObjectId(uid(req));
+ const pay=await BillingPayment.findOne({userId,method:'pix',status:'pending',providerPaymentId:{$exists:true}}).sort({createdAt:-1});
+ if(pay?.providerPaymentId)await syncPixPayment(pay.providerPaymentId);
+ const sub=await BillingSubscription.findOne({userId,method:'credit'});
+ if(sub?.providerSubscriptionId)await syncCreditSubscription(sub.providerSubscriptionId);
+ res.json({ok:true});
+}));
+billingRouter.post('/cancel',asyncRoute(async(req,res)=>{
+ const userId=new mongoose.Types.ObjectId(uid(req));
+ const sub=await BillingSubscription.findOne({userId,method:'credit'});
+ if(!sub?.providerSubscriptionId)throw new HttpError(404,'Nenhuma assinatura recorrente encontrada');
+ if(!paymentConfig().enabled)throw new HttpError(503,'Integração de pagamento indisponível');
+ await mp<MpSubscription>('PUT',`/preapproval/${encodeURIComponent(sub.providerSubscriptionId)}`,{status:'cancelled'});
+ sub.cancelAtPeriodEnd=true;sub.status='canceled';await sub.save();
+ res.json({ok:true,message:'Assinatura recorrente cancelada. O acesso pago permanece até o fim do período já confirmado.'});
+}));

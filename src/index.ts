@@ -6,12 +6,16 @@ import {rateLimit} from 'express-rate-limit';
 import {config,validateConfig} from './config.js';
 import {errorHandler} from './utils/http.js';
 import {authRouter} from './routes/auth.js';
+import {billingRouter} from './routes/billing.js';
+import {mercadoPagoWebhookRouter} from './routes/mercadoPagoWebhook.js';
+import {adminBillingRouter} from './routes/adminBilling.js';
 import {entriesRouter} from './routes/entries.js';
 import {dashboardRouter} from './routes/dashboard.js';
 import {motoRouter} from './routes/moto.js';
 import {goalsRouter} from './routes/goals.js';
 import {assistantRouter} from './routes/assistant.js';
 import {requireAuth} from './services/auth.js';
+import {requirePremium} from './services/premium.js';
 
 async function bootstrap(){
  validateConfig();
@@ -32,11 +36,14 @@ async function bootstrap(){
  });
  app.get('/api/health',(_req,res)=>res.json({status:'ok',service:'motopro-api'}));
  app.use('/api/auth',authRouter);
+ app.use('/api/webhooks/mercadopago',mercadoPagoWebhookRouter);
+ app.use('/api/billing',requireAuth,billingRouter);
+ app.use('/api/admin/billing',requireAuth,adminBillingRouter);
  app.use('/api/dashboard',requireAuth,dashboardRouter);
  app.use('/api/entries',requireAuth,entriesRouter);
  app.use('/api/moto',requireAuth,motoRouter);
  app.use('/api/goals',requireAuth,goalsRouter);
- app.use('/api/assistant',requireAuth,assistantRouter);
+ app.use('/api/assistant',requireAuth,requirePremium,assistantRouter);
  app.get('/api/integrations',requireAuth,(_req,res)=>res.json({providers:[
   {id:'rappidex',name:'Rappidex',status:'pending_agreement'},
   {id:'ifood',name:'iFood',status:'not_available'}
