@@ -1,6 +1,8 @@
 import mongoose from 'mongoose';
 
 export interface PaymentFields {
+  createdAt?:Date;
+  updatedAt?:Date;
   userId: mongoose.Types.ObjectId;
   method: 'pix'|'credit';
   status: 'pending'|'approved'|'rejected'|'refunded'|'canceled';

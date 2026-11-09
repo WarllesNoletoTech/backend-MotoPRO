@@ -63,6 +63,8 @@ async function main(){
   const schema=new mongoose.Schema({name:String,email:String,passwordHash:{type:String,select:false},role:String,timezone:String,trialEndsAt:Date},{strict:false});
   const User=mongoose.models.User || mongoose.model('User',schema,'users');
   const existing=await User.findOne({email}).select('+passwordHash role name');
+  const anotherAdmin=await User.findOne({role:'admin',email:{$ne:email}}).select('_id');
+  if(anotherAdmin)throw new Error('Já existe outro administrador. O MotoPRO permite apenas um administrador.');
   if(existing) await confirmPromotion(email,String(existing.role||'driver'));
   const password=await readSecret('Nova senha de administrador (mínimo 12 caracteres; não aparece na tela): ');
   const repeated=await readSecret('Confirme a senha: ');
