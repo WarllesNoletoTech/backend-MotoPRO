@@ -1,0 +1,29 @@
+MotoPRO V3.9.1 - correção de compilação do backend
+
+Problema exibido pelo Heroku:
+TS2339 em src/routes/billing.ts (trialEndsAt, role) e src/services/premium.ts (blockedAt, role, trialEndsAt).
+
+Causa: A expressão models.User || model('User', schema) no modelo legado provoca uma
+inferência ambígua ao usar findById().lean(): para o TypeScript o retorno pode ser
+objeto ou lista, embora findById retorne um único documento em runtime.
+
+Correção aplicada SOMENTE aos arquivos de backend:
+- src/routes/billing.ts
+- src/services/premium.ts
+
+As duas consultas agora declaram explicitamente o formato dos campos projetados,
+sem modificar o modelo User, o banco de dados, o Pix ou os webhooks.
+
+DEPLOY
+1) Atualize o repositório backend-MotoPRO com o conteúdo de backend-MotoPRO.
+2) No Heroku, verifique o sucesso da compilação `tsc -p tsconfig.json`.
+3) A versão frontend V3.9 continua compatível; nenhuma alteração no frontend é necessária.
+4) Na página Assinatura, confira o QR Pix e a renovação; o backend deve incluir
+   `contractVersion: 2`, `notice`, `access` e `renewalAllowed` na resposta /api/billing/me.
+
+VALIDAÇÃO
+Foi verificada a sintaxe TypeScript e a correção dos cinco pontos identificados.
+O build integral com dependências não foi realizado neste ambiente porque o npm registry
+não está acessível; confirme o build real no Heroku antes de considerar o deploy validado.
+
+IMPORTANTE: O deploy remoto não foi alterado por este arquivo ZIP.

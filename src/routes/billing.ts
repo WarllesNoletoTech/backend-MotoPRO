@@ -30,7 +30,9 @@ billingRouter.get('/me',asyncRoute(async(req,res)=>{
  if(sub?.status==='active' && sub.activeUntil && new Date(sub.activeUntil)<=now){
   await BillingSubscription.updateOne({_id:sub._id,status:'active',activeUntil:{$lte:now}},{$set:{status:'expired'}});
  }
- const user=await User.findById(userId).select('trialEndsAt role').lean();
+ // findById retorna um documento único; o model legado não tipa o .lean() corretamente.
+ const user=(await User.findById(userId).select('trialEndsAt role').lean()) as
+  {trialEndsAt?:Date|null;role?:'driver'|'admin'}|null;
  const notice=subscriptionNotice({paidUntil:sub?.activeUntil,trialUntil:user?.trialEndsAt,courtesyUntil:courtesy?.activeUntil},now);
  const active=!!sub?.activeUntil && new Date(sub.activeUntil)>now;
  res.setHeader('Cache-Control','private, no-store');

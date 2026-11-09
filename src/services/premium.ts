@@ -12,7 +12,9 @@ export const premiumEntitled = (status: string) => ['active','expiring','trial',
 
 export const requirePremium = asyncRoute(async(req,_res,next)=>{
   if(!premiumEnforced())return next(); // Homologação: habilitar após validar todo o fluxo.
-  const user=await User.findById(uid(req)).select('role trialEndsAt blockedAt').lean();
+  // A projeção é um documento único. Evita o falso tipo de lista do models.User legado.
+  const user=(await User.findById(uid(req)).select('role trialEndsAt blockedAt').lean()) as
+    {role:'driver'|'admin';trialEndsAt?:Date|null;blockedAt?:Date|null}|null;
   if(!user)throw new HttpError(401,'Conta não encontrada');
   if(user.blockedAt)throw new HttpError(403,'Conta bloqueada. Entre em contato com o suporte.');
   if(user.role==='admin')return next();
