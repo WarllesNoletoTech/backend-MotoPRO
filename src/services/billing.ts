@@ -5,17 +5,34 @@ import {MpAuthorizedPayment,MpPix,MpPixOrder,MpSubscription,mp,mpPix} from './me
 
 // Somente confirmações consultadas diretamente na API do provedor liberam acesso.
 export async function applyApprovedPayment(userId:mongoose.Types.ObjectId,providerPaymentId:string,method:'pix'|'credit',until?:Date){
- const now=new Date();
- let sub=await BillingSubscription.findOne({userId});
- if(!sub){
-  sub=await BillingSubscription.findOneAndUpdate({userId},{$setOnInsert:{method,status:'pending',priceCents:999,cancelAtPeriodEnd:false,appliedPaymentIds:[]}},{upsert:true,new:true});
+ // Webhook e consulta manual podem chegar ao mesmo tempo. A atualização
+ // condicional evita liberar duas vezes o mesmo Pix ou perder uma renovação
+ // quando dois pagamentos distintos são confirmados simultaneamente.
+ for(let attempt=0;attempt<8;attempt++){
+  let sub=await BillingSubscription.findOne({userId});
+  if(!sub){
+   try{
+    sub=await BillingSubscription.findOneAndUpdate({userId},
+     {$setOnInsert:{method,status:'pending',priceCents:999,cancelAtPeriodEnd:false,appliedPaymentIds:[]}},
+     {upsert:true,new:true});
+   }catch(error){
+    // Outra requisição pode ter criado a assinatura no mesmo instante.
+    if(typeof error==='object' && error!==null && 'code' in error && error.code===11000)continue;
+    throw error;
+   }
+  }
+  if(!sub)continue;
+  if(sub.appliedPaymentIds.includes(providerPaymentId)||(sub.cancelAtPeriodEnd && method==='credit'))return;
+  const previousUntil=sub.activeUntil??null;
+  const start=Math.max(Date.now(),previousUntil?.getTime()||0);
+  const newUntil=until||new Date(start+7*86400_000);
+  const result=await BillingSubscription.updateOne({
+   _id:sub._id,appliedPaymentIds:{$ne:providerPaymentId},activeUntil:previousUntil
+  },{$addToSet:{appliedPaymentIds:providerPaymentId},$set:{status:'active',method,activeUntil:newUntil}});
+  if(result.modifiedCount===1)return;
+  // A assinatura mudou desde a leitura; buscar o prazo atualizado e tentar novamente.
  }
- if(!sub||sub.appliedPaymentIds.includes(providerPaymentId)||(sub.cancelAtPeriodEnd && method==='credit'))return;
- const start=Math.max(now.getTime(),sub.activeUntil?.getTime()||0);
- const newUntil=until||new Date(start+7*86400_000);
- // Operação idempotente: mesma confirmação não deve estender o acesso duas vezes.
- await BillingSubscription.updateOne({userId,appliedPaymentIds:{$ne:providerPaymentId}},
-  {$addToSet:{appliedPaymentIds:providerPaymentId},$set:{status:'active',method,activeUntil:newUntil}});
+ throw new Error('Conciliacao Premium concorrente: tente novamente para aplicar o pagamento');
 }
 export async function syncPixPayment(providerPaymentId:string){
  const pay=await BillingPayment.findOne({providerPaymentId,method:'pix'});

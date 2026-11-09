@@ -94,7 +94,8 @@ billingRouter.post('/credit',(_req,res)=>{
 });
 billingRouter.post('/refresh',asyncRoute(async(req,res)=>{
  const userId=new mongoose.Types.ObjectId(uid(req));
- const pay=await BillingPayment.findOne({userId,method:'pix',status:'pending'}).sort({createdAt:-1});
+ // Também reconcilia aprovações gravadas antes de uma eventual falha ao liberar o Premium.
+ const pay=await BillingPayment.findOne({userId,method:'pix',status:{$in:['pending','approved']}}).sort({createdAt:-1});
  if(pay?.providerOrderId)await syncPixOrder(pay.providerOrderId);
  else if(pay?.providerPaymentId)await syncPixPayment(pay.providerPaymentId);
  const sub=await BillingSubscription.findOne({userId,method:'credit'});
