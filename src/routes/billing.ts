@@ -8,39 +8,49 @@ import {getAdminSettings} from '../models/AdminSetting.js';
 import {CourtesyGrant} from '../models/CourtesyGrant.js';
 import {uid} from '../services/auth.js';
 import {asyncRoute,HttpError} from '../utils/http.js';
-import {mp,paymentConfig,MpPix,MpSubscription} from '../services/mercadoPago.js';
-import {syncPixPayment,syncCreditSubscription} from '../services/billing.js';
+import {mp,mpPix,paymentConfig,pixPaymentConfig,MpPixOrder,MpSubscription} from '../services/mercadoPago.js';
+import {syncPixPayment,syncPixOrder,syncCreditSubscription} from '../services/billing.js';
 
 export const billingRouter=Router();
 const makePlan=(priceCents:number)=>({priceCents,currency:'BRL',frequency:7,frequencyUnit:'days',methods:['pix','credit'] as const,pixAutomaticAvailable:false});
-billingRouter.get('/plan',asyncRoute(async(_req,res)=>res.json({plan:makePlan((await getAdminSettings()).weeklyPriceCents),billingEnabled:paymentConfig().enabled})));
+billingRouter.get('/plan',asyncRoute(async(_req,res)=>res.json({plan:makePlan((await getAdminSettings()).weeklyPriceCents),billingEnabled:paymentConfig().enabled||pixPaymentConfig().enabled})));
 billingRouter.get('/me',asyncRoute(async(req,res)=>{
  const userId=new mongoose.Types.ObjectId(uid(req));
  const sub=await BillingSubscription.findOne({userId}).lean();
  const payment=await BillingPayment.findOne({userId,method:'pix',status:'pending'}).sort({createdAt:-1}).lean();
  const active=!!sub?.activeUntil && new Date(sub.activeUntil)>new Date();
  const [settings,courtesy]=await Promise.all([getAdminSettings(),CourtesyGrant.findOne({userId,activeUntil:{$gt:new Date()}}).select('activeUntil').lean()]);
- res.json({plan:makePlan(settings.weeklyPriceCents),courtesyUntil:courtesy?.activeUntil??null,billingEnabled:paymentConfig().enabled,subscription:sub?{method:sub.method,status:sub.status,activeUntil:sub.activeUntil,cancelAtPeriodEnd:sub.cancelAtPeriodEnd,active}:null,pendingPix:payment?{id:String(payment._id),code:payment.pixCode,qrCodeBase64:payment.pixQrBase64,ticketUrl:payment.pixTicketUrl,expiresAt:payment.expiresAt}:null});
+ res.json({plan:makePlan(settings.weeklyPriceCents),courtesyUntil:courtesy?.activeUntil??null,billingEnabled:paymentConfig().enabled||pixPaymentConfig().enabled,subscription:sub?{method:sub.method,status:sub.status,activeUntil:sub.activeUntil,cancelAtPeriodEnd:sub.cancelAtPeriodEnd,active}:null,pendingPix:payment?{id:String(payment._id),code:payment.pixCode,qrCodeBase64:payment.pixQrBase64,ticketUrl:payment.pixTicketUrl,expiresAt:payment.expiresAt}:null});
 }));
 billingRouter.post('/pix',asyncRoute(async(req,res)=>{
- const cfg=paymentConfig();if(!cfg.enabled)throw new HttpError(503,'Pagamentos ainda em homologação');
+ if(!pixPaymentConfig().enabled)throw new HttpError(503,'Pix de teste ainda não configurado');
  const userId=new mongoose.Types.ObjectId(uid(req));
  const user=await User.findById(userId).select('email');if(!user)throw new HttpError(401,'Conta inválida');
  const recurring=await BillingSubscription.findOne({userId,method:'credit',providerSubscriptionId:{$exists:true},cancelAtPeriodEnd:false});
  if(recurring)throw new HttpError(409,'Cancele sua assinatura automática antes de utilizar Pix avulso');
+ const expires=new Date(Date.now()+30*60*1000);
  const existing=await BillingPayment.findOne({userId,method:'pix',status:'pending',expiresAt:{$gt:new Date()}}).sort({createdAt:-1});
  if(existing?.pixCode)return res.json({paymentId:String(existing._id),pixCode:existing.pixCode,qrCodeBase64:existing.pixQrBase64,ticketUrl:existing.pixTicketUrl,expiresAt:existing.expiresAt});
  const priceCents=(await getAdminSettings()).weeklyPriceCents;
- const pay=await BillingPayment.create({userId,method:'pix',status:'pending',amountCents:priceCents,idempotencyKey:randomUUID()});
- const expires=new Date(Date.now()+30*60*1000);
- const result=await mp<MpPix>('POST','/v1/payments',{
-  transaction_amount:priceCents/100,description:'MotoPRO Premium - acesso por 7 dias',payment_method_id:'pix',
-  payer:{email:user.email},external_reference:`motopro_pix_${String(pay._id)}`,
-  date_of_expiration:expires.toISOString(),notification_url:`${cfg.origin.replace(/\/$/,'')}/api/webhooks/mercadopago`
- },pay.idempotencyKey);
- const data=result.point_of_interaction?.transaction_data;
- pay.providerPaymentId=String(result.id);pay.pixCode=data?.qr_code;pay.pixQrBase64=data?.qr_code_base64;
- pay.pixTicketUrl=data?.ticket_url;pay.expiresAt=expires;await pay.save();
+ const pay=existing??await BillingPayment.create({userId,method:'pix',status:'pending',amountCents:priceCents,idempotencyKey:randomUUID(),expiresAt:expires});
+ const amount=(pay.amountCents/100).toFixed(2);
+ const order=pay.providerOrderId
+  ? await mpPix<MpPixOrder>('GET',`/v1/orders/${encodeURIComponent(pay.providerOrderId)}`)
+  : await mpPix<MpPixOrder>('POST','/v1/orders',{
+   type:'online',total_amount:amount,external_reference:`motopro_pix_${String(pay._id)}`,
+   processing_mode:'automatic',
+   transactions:{payments:[{amount,payment_method:{id:'pix',type:'bank_transfer'},expiration_time:'PT30M'}]},
+   payer:{email:user.email}
+  },pay.idempotencyKey);
+ if(!order.id || !/^ORD[0-9A-Za-z]+$/.test(order.id))throw new HttpError(502,'Mercado Pago não retornou uma order válida');
+ if(order.external_reference!==`motopro_pix_${String(pay._id)}`)throw new HttpError(502,'Referência da cobrança Pix divergente');
+ pay.providerOrderId=order.id;
+ const pix=order.transactions?.payments?.[0]?.payment_method;
+ if(pix?.id==='pix'){
+  pay.pixCode=pix.qr_code;pay.pixQrBase64=pix.qr_code_base64;pay.pixTicketUrl=pix.ticket_url;
+ }
+ await pay.save();
+ if(!pay.pixCode)throw new HttpError(503,'Pix ainda em processamento. Use Verificar confirmação em instantes.');
  res.status(201).json({paymentId:String(pay._id),pixCode:pay.pixCode,qrCodeBase64:pay.pixQrBase64,ticketUrl:pay.pixTicketUrl,expiresAt:pay.expiresAt});
 }));
 billingRouter.post('/credit',asyncRoute(async(req,res)=>{
@@ -63,8 +73,9 @@ billingRouter.post('/credit',asyncRoute(async(req,res)=>{
 }));
 billingRouter.post('/refresh',asyncRoute(async(req,res)=>{
  const userId=new mongoose.Types.ObjectId(uid(req));
- const pay=await BillingPayment.findOne({userId,method:'pix',status:'pending',providerPaymentId:{$exists:true}}).sort({createdAt:-1});
- if(pay?.providerPaymentId)await syncPixPayment(pay.providerPaymentId);
+ const pay=await BillingPayment.findOne({userId,method:'pix',status:'pending'}).sort({createdAt:-1});
+ if(pay?.providerOrderId)await syncPixOrder(pay.providerOrderId);
+ else if(pay?.providerPaymentId)await syncPixPayment(pay.providerPaymentId);
  const sub=await BillingSubscription.findOne({userId,method:'credit'});
  if(sub?.providerSubscriptionId)await syncCreditSubscription(sub.providerSubscriptionId);
  res.json({ok:true});
