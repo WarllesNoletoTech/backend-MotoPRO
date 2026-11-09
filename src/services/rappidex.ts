@@ -25,12 +25,23 @@ async function remote<T>(path:string,method='GET',body?:object):Promise<T>{
  finally{clearTimeout(timer);}
 }
 const connectionResponse=z.object({motoboyId:z.string().min(1).max(100),motoboyName:z.string().min(1).max(110)});
+/** Dados de um único vínculo. O model legado usa `models.X || model(...)`,
+ * que faz o Mongoose inferir `lean()` como objeto OU array no TS.
+ * Como `findOne` sempre retorna um único documento ou null, estreitamos o tipo aqui.
+ */
+type RappidexConnectionLean = {
+  _id: mongoose.Types.ObjectId;
+  remoteName: string;
+  remoteUserId: string;
+  createdAt: Date;
+  lastSyncAt: Date | null;
+};
 const pageResponse=z.object({
  items:z.array(z.object({id:z.string().min(1).max(100),amountCents:z.number().int().positive().max(100_000_000),occurredOn:z.string().refine(isValidDateOnly)})).max(100),
  missingPayoutCount:z.number().int().min(0).max(100),hasMore:z.boolean(),page:z.number().int().positive(),
 });
 export async function getConnection(userId:string){
- const c=await IntegrationConnection.findOne({userId,provider:'rappidex'}).lean();
+ const c=(await IntegrationConnection.findOne({userId,provider:'rappidex'}).lean()) as RappidexConnectionLean | null;
  return c?{name:c.remoteName,linkedAt:c.createdAt,lastSyncAt:c.lastSyncAt}:null;
 }
 export async function linkRappidex(userId:string,code:string){
@@ -54,7 +65,7 @@ export async function unlinkRappidex(userId:string){
  }finally{await IntegrationConnection.updateOne({_id:c._id,syncLockToken:lockToken},{$set:{syncLockUntil:null,syncLockToken:null}});}
 }
 export async function syncRappidex(userId:string,params:{from?:string;to?:string;force?:boolean}={}){
- const c=await IntegrationConnection.findOne({userId,provider:'rappidex'}).lean();
+ const c=(await IntegrationConnection.findOne({userId,provider:'rappidex'}).lean()) as RappidexConnectionLean | null;
  if(!c)return {linked:false,created:0,updated:0,removed:0,missingPayoutCount:0};
  const to=params.to||dateInTimezone('America/Belem'),from=params.from||addDays(to,-29);
  const diff=Date.parse(`${to}T12:00:00Z`)-Date.parse(`${from}T12:00:00Z`);
