@@ -9,7 +9,10 @@ const schema = new Schema({
   blockReason:{type:String,default:'',maxlength:240},
   lastLoginAt:{type:Date,default:null},
   timezone:{type:String,default:'America/Belem'},
-  trialEndsAt:{type:Date,default:()=>new Date(Date.now()+7*86400_000)}
+  // Para usuários antigos pode estar ausente até completar o cadastro.
+  phone:{type:String,trim:true,default:null,maxlength:16},
+  // Sem prazo gratuito implícito: os dias são definidos exclusivamente no cadastro, pelo admin.
+  trialEndsAt:{type:Date,default:null}
 },{timestamps:true});
 // Limita o banco a uma única conta de administrador.
 schema.index({role:1},{unique:true,partialFilterExpression:{role:'admin'},name:'singleton_admin'});

@@ -32,7 +32,7 @@ const pageParams=(q:Record<string,unknown>)=>({
 const audit=async(actorId:string,action:string,targetId?:mongoose.Types.ObjectId,metadata:Record<string,string|number|boolean|null>={})=>{
  await AdminAudit.create({actorId:getId(actorId),action,targetId,metadata});
 };
-const publicUser=(u:any)=>({id:String(u._id),name:u.name,email:u.email,role:u.role,
+const publicUser=(u:any)=>({id:String(u._id),name:u.name,email:u.email,phone:u.phone||null,role:u.role,
  blocked:!!u.blockedAt,blockReason:u.blockReason||'',createdAt:u.createdAt,lastLoginAt:u.lastLoginAt??null,
  trialEndsAt:u.trialEndsAt??null});
 const escapeRegex=(s:string)=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
@@ -52,7 +52,7 @@ adminBillingRouter.get('/overview',asyncRoute(async(_req,res)=>{
  ]);
  res.json({users,blockedUsers:blocked,activeSubscribers:active,expiringSubscribers:expiring,expiredSubscribers:expired,activeCourtesy,
   receivedCents:approved[0]?.sum||0,approvedPayments:approved[0]?.count||0,
-  weeklyPriceCents:settings.weeklyPriceCents,
+  weeklyPriceCents:settings.weeklyPriceCents,trialDays:settings.trialDays,premiumRequired:settings.premiumRequired,
   billingEnabled:pixPaymentConfig().enabled,
   monthlyCampaign:{status:'planning',message:'Campanhas não aleatórias, com critérios objetivos e regulamento aprovado. Sorteios não são executados pelo MotoPRO.'}});
 }));
@@ -65,7 +65,7 @@ adminBillingRouter.get('/users',asyncRoute(async(req,res)=>{
  if(query.filter==='active')filter.blockedAt=null;
  if(query.search)filter.$or=[{name:{$regex:escapeRegex(query.search),$options:'i'}},{email:{$regex:escapeRegex(query.search),$options:'i'}}];
  const [count,users]=await Promise.all([User.countDocuments(filter),User.find(filter)
-  .select('name email role blockedAt blockReason trialEndsAt lastLoginAt createdAt')
+  .select('name email phone role blockedAt blockReason trialEndsAt lastLoginAt createdAt')
   .sort({createdAt:-1}).skip((page-1)*limit).limit(limit).lean()]);
  const ids=users.map(u=>u._id);
  const [subscriptions,courtesies]=await Promise.all([
@@ -145,13 +145,15 @@ adminBillingRouter.get('/settings',asyncRoute(async(_req,res)=>{
  res.json({settings:await getAdminSettings(),billingEnabled:pixPaymentConfig().enabled});
 }));
 const settingsInput=z.object({weeklyPriceCents:z.number().int().min(199).max(99900),trialDays:z.number().int().min(0).max(30),
+ // Opcional para compatibilidade com frontends antigos durante a publicação.
+ premiumRequired:z.boolean().optional(),
  newRegistrationsOpen:z.boolean(),announcement:z.string().trim().max(500),maintenanceNotice:z.string().trim().max(500),
  premiumBenefits:z.array(z.string().trim().min(2).max(90)).max(10)}).strict();
 adminBillingRouter.patch('/settings',asyncRoute(async(req,res)=>{
  const data=settingsInput.parse(req.body);const previous=await getAdminSettings();
  await AdminSetting.findOneAndUpdate({key:'global'},{$set:data,$setOnInsert:{key:'global'}},{upsert:true,new:true,runValidators:true});
- await audit(uid(req),'settings.update',undefined,{previousPrice:previous.weeklyPriceCents,newPrice:data.weeklyPriceCents,trialDays:data.trialDays,registrations:data.newRegistrationsOpen});
- res.json({settings:await getAdminSettings(),warning:'A alteração do preço se aplica somente aos próximos Pix; cobranças anteriores não são modificadas.'});
+ await audit(uid(req),'settings.update',undefined,{previousPrice:previous.weeklyPriceCents,newPrice:data.weeklyPriceCents,trialDays:data.trialDays,premiumRequired:data.premiumRequired??previous.premiumRequired,registrations:data.newRegistrationsOpen});
+ res.json({settings:await getAdminSettings(),warning:'Os dias de teste valem para novos cadastros; assinaturas pagas e cortesias já existentes não são alteradas.'});
 }));
 
 const campaignCreate=z.object({title:z.string().trim().min(4).max(100),description:z.string().trim().min(10).max(1200),
