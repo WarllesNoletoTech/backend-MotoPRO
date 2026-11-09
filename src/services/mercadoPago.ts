@@ -11,8 +11,22 @@ export function paymentConfig(){
  const front=process.env.APP_ORIGIN || '';
  return {token,secret,origin,front,enabled:process.env.MP_BILLING_ENABLED==='true' && !!token && !!secret && origin.startsWith('https://')};
 }
+export function pixPaymentConfig(){
+ const token=process.env.MP_PIX_ACCESS_TOKEN || '';
+ const secret=process.env.MP_PIX_WEBHOOK_SECRET || '';
+ const enabled=process.env.MP_BILLING_ENABLED==='true' && !!token && !!secret;
+ return {token,secret,enabled};
+}
+export async function mpPix<T>(method:'GET'|'POST',path:string,payload?:unknown,idempotencyKey?:string):Promise<T>{
+ const {token}=pixPaymentConfig();
+ if(!token)throw new HttpError(503,'Credenciais do Pix não configuradas');
+ return requestMp<T>(token,method,path,payload,idempotencyKey);
+}
 export async function mp<T>(method:'GET'|'POST'|'PUT',path:string,payload?:unknown,idempotencyKey?:string):Promise<T>{
  const {token}=paymentConfig();
+ return requestMp<T>(token,method,path,payload,idempotencyKey);
+}
+async function requestMp<T>(token:string,method:'GET'|'POST'|'PUT',path:string,payload?:unknown,idempotencyKey?:string):Promise<T>{
  if(!token)throw new HttpError(503,'Integração Mercado Pago não configurada');
  const controller=new AbortController();
  const t=setTimeout(()=>controller.abort(),12_000);
@@ -37,3 +51,19 @@ export function verifyMercadoPagoSignature(signature:string|undefined,requestId:
 export type MpPix={id:number|string;status:string;transaction_details?:{external_resource_url?:string};point_of_interaction?:{transaction_data?:{qr_code?:string;qr_code_base64?:string;ticket_url?:string}};date_of_expiration?:string;external_reference?:string;transaction_amount?:number;payment_method_id?:string;preapproval_id?:string};
 export type MpSubscription={id:string;status:string;external_reference?:string};
 export type MpAuthorizedPayment={id:string|number;status:string;preapproval_id?:string;transaction_amount?:number;payment?:{id?:string|number;status?:string};};
+
+/** Orders API do Checkout Transparente: Pix avulso, sem débito automático. */
+export interface MpPixOrder {
+ id:string;
+ external_reference?:string;
+ total_amount?:string;
+ status:string;
+ status_detail?:string;
+ transactions?:{payments?:Array<{
+  id?:string;
+  amount?:string;
+  status?:string;
+  status_detail?:string;
+  payment_method?:{id?:string;type?:string;qr_code?:string;qr_code_base64?:string;ticket_url?:string};
+ }>};
+}
