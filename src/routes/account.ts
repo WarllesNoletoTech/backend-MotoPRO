@@ -27,8 +27,11 @@ accountRouter.get('/export',asyncRoute(async(req,res)=>{
    getAdminSettings()
  ]);
  if(!user)throw new HttpError(401,'Conta não encontrada');
+ // findById sempre retorna um único documento, nunca uma lista. A tipagem genérica
+ // do modelo legado faz o lean() aparentar retornar também um array no TypeScript.
+ const createdAt=(user as unknown as {createdAt?:Date|null}).createdAt;
  res.setHeader('Cache-Control','private, no-store');
  res.setHeader('Content-Type','application/json; charset=utf-8');
  res.setHeader('Content-Disposition','attachment; filename="motopro-meus-dados.json"');
- res.json({exportedAt:new Date().toISOString(),user:{...user,trialEndsAt:currentTrialUntil(user.createdAt,settings.trialDays)},entries,motorcycle,reminders,goal,subscription,payments});
+ res.json({exportedAt:new Date().toISOString(),user:{...user,trialEndsAt:currentTrialUntil(createdAt,settings.trialDays)},entries,motorcycle,reminders,goal,subscription,payments});
 }));
