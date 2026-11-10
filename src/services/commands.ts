@@ -5,66 +5,155 @@ export type ParsedCommand =
 
 export const normalizeText = (value:string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
 
+// Valores de dinheiro em português brasileiro. A IA entende a intenção, mas o
+// valor só é aceito quando também puder ser confirmado nas palavras do usuário.
 const units:Record<string,number>={
  um:1,uma:1,dois:2,duas:2,tres:3,quatro:4,cinco:5,seis:6,sete:7,oito:8,nove:9,
  dez:10,onze:11,doze:12,treze:13,quatorze:14,catorze:14,quinze:15,dezesseis:16,
  dezessete:17,dezoito:18,dezenove:19,vinte:20,trinta:30,quarenta:40,cinquenta:50,
  sessenta:60,setenta:70,oitenta:80,noventa:90,cem:100,cento:100,duzentos:200,
  duzentas:200,trezentos:300,trezentas:300,quatrocentos:400,quinhentos:500,
- seiscentos:600,setecentos:700,oitocentos:800,novecentos:900,mil:1000
+ seiscentos:600,setecentos:700,oitocentos:800,novecentos:900
 };
-function wordsToNumber(s:string):number|null{
- let total=0,part=0,count=0;
- for(const w of s.trim().split(/\s+/)){
-  if(w==='e')continue;
-  const n=units[w];if(n===undefined)return null;
-  count++;
-  if(w==='mil'){total+=(part||1)*1000;part=0;}else part+=n;
- }
- return count?total+part:null;
+const MAX_AMOUNT_CENTS=100_000_000;
+const moneyLabels=new Set(['real','reais','conto','contos']);
+const physicalLabels=new Set(['litro','litros','km','quilometro','quilometros','entrega','entregas','corrida','corridas','hora','horas','minuto','minutos','dia','dias']);
+const moneyVerbs=new Set(['ganhei','recebi','faturei','rendeu','entrou','paguei','gastei','custou','deu','coloquei','abasteci','gasto','fiz','cobrei','vendi','tive','recebimento','ganho']);
+
+type NumberMatch={value:number;end:number};
+function tokenize(text:string):string[]{
+ return normalizeText(text).replace(/r\s*\$/g,' r$ ').match(/r\$|\d+(?:[.,]\d+)*|[a-z]+/g)||[];
 }
-const validAmount=(n:number)=>Number.isSafeInteger(n)&&n>0&&n<=100_000_000?n:null;
-function numericCents(value:string):number|null{
- const raw=value.replace(/\s/g,'');
- const normalized=raw.includes(',')?raw.replace(/\./g,'').replace(',','.'):
-  /^\d{1,3}(?:\.\d{3})+$/.test(raw)?raw.replace(/\./g,''):raw;
- return validAmount(Math.round(Number(normalized)*100));
+function numericBR(raw:string):number|null{
+ // 1.000 ou 25.000,50: pontuação de milhar brasileira.
+ let normalized:string;
+ if(/^\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?$/.test(raw))normalized=raw.replace(/\./g,'').replace(',','.');
+ else if(/^\d+(?:,\d{1,2})?$/.test(raw))normalized=raw.replace(',','.');
+ else if(/^\d+\.\d{1,2}$/.test(raw))normalized=raw;
+ else return null;
+ const value=Number(normalized);
+ return Number.isFinite(value)&&value>=0?value:null;
 }
-function wordAmount(s:string):number|null{
- const tokens=s.replace(/[!?;:.,]/g,' ').split(/\s+/).filter(Boolean);
- for(let i=0;i<tokens.length;i++){
-  if(!/^(?:reais?|contos?)$/.test(tokens[i]))continue;
-  // Examine a sequência mais próxima antes da moeda.
-  for(let start=Math.max(0,i-8);start<i;start++){
-   const n=wordsToNumber(tokens.slice(start,i).join(' '));
-   if(n!==null&&n>0)return validAmount(n*100);
+function amountToCents(value:number):number|null{
+ const cents=Math.round(value*100);
+ return Number.isSafeInteger(cents)&&cents>0&&cents<=MAX_AMOUNT_CENTS?cents:null;
+}
+function readNumber(tokens:string[],start:number):NumberMatch|null{
+ let total=0,part=0,index=start,seen=false,previousWasAnd=false;
+ for(;index<tokens.length;index++){
+  const token=tokens[index];
+  if(token==='e'){
+   if(!seen||previousWasAnd||index+1>=tokens.length||
+      !(tokens[index+1] in units)&&tokens[index+1]!=='mil'&&tokens[index+1]!=='k'&&tokens[index+1]!=='milhao'&&tokens[index+1]!=='milhoes'&&numericBR(tokens[index+1])===null)break;
+   previousWasAnd=true;
+   continue;
   }
+  if(token==='mil'||token==='k'){
+   total+=(part||1)*1000;
+   part=0;seen=true;previousWasAnd=false;
+   continue;
+  }
+  if(token==='milhao'||token==='milhoes'){
+   total+=(part||1)*1_000_000;part=0;seen=true;previousWasAnd=false;
+   continue;
+  }
+  const amount=token in units?units[token]:numericBR(token);
+  if(amount===null||amount===undefined)break;
+  // Evita valores semanticamente impossíveis: 25,50 20 não é um número falado.
+  if(amount%1!==0&&index+1<tokens.length&&tokens[index+1]!=='mil'){
+   part+=amount;seen=true;index++;break;
+  }
+  part+=amount;seen=true;previousWasAnd=false;
  }
- // Sem moeda: 'abasteci trinta e cinco com gasolina'.
- for(let i=0;i<tokens.length;i++){
-  if(units[tokens[i]]===undefined)continue;
-  for(let end=Math.min(tokens.length,i+8);end>i;end--){
-   const n=wordsToNumber(tokens.slice(i,end).join(' '));
-   if(n!==null&&n>0)return validAmount(n*100);
-  }
+ if(!seen)return null;
+ if(previousWasAnd)index--; // 'e' não completa uma quantia.
+ return {value:total+part,end:index};
+}
+function readBefore(tokens:string[],end:number):NumberMatch|null{
+ // Procura a maior expressão numérica imediatamente antes de 'reais'.
+ for(let start=Math.max(0,end-12);start<end;start++){
+  const found=readNumber(tokens,start);
+  if(found&&found.end===end)return found;
  }
  return null;
 }
+function centsAfterReal(tokens:string[],currencyIndex:number):number{
+ // "mil reais e cinquenta centavos" = R$ 1.000,50.
+ let start=currencyIndex+1;
+ if(tokens[start]==='e')start++;
+ const found=readNumber(tokens,start);
+ return found&&tokens[found.end]==='centavos'&&Number.isInteger(found.value)&&found.value>=0&&found.value<100
+  ?found.value:0;
+}
+function moneyCandidate(tokens:string[],found:NumberMatch,currencyIndex?:number):number|null{
+ const cents=amountToCents(found.value);
+ if(cents===null)return null;
+ const extra=currencyIndex===undefined?0:centsAfterReal(tokens,currencyIndex);
+ return cents+extra<=MAX_AMOUNT_CENTS?cents+extra:null;
+}
+function isPhysicalQuantity(tokens:string[],end:number):boolean{
+ return physicalLabels.has(tokens[end]||'');
+}
 export function extractAmountCents(text:string):number|null{
- const s=normalizeText(text).replace(/\s+/g,' ').trim();
- // Prefira valores com R$ ou 'reais' a litros, km ou números de entregas.
- const currency=s.match(/r\$\s*(\d{1,6}(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)/);
- if(currency){const value=numericCents(currency[1]);if(value!==null)return value;}
- const monetary=s.match(/\b(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)\s*(?:reais?|contos?)\b/);
- if(monetary){const value=numericCents(monetary[1]);if(value!==null)return value;}
- // Quando houver quilômetros/litros e também um preço sem "reais", priorize
- // o número próximo a um verbo financeiro ("8 litros e paguei 40").
- const paid=s.match(/\b(?:paguei|ganhei|recebi|gastei|custou|deu|rendeu|faturei|entrou)\s+(?:r\$\s*)?(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)\b/);
- if(paid){const value=numericCents(paid[1]);if(value!==null)return value;}
- const spoken=wordAmount(s);
- if(spoken!==null)return spoken;
- const fallback=s.match(/\b\d+(?:\.\d{3})*(?:,\d{1,2})?\b|\b\d+(?:[.,]\d{1,2})?\b/);
- return fallback?numericCents(fallback[0]):null;
+ const tokens=tokenize(text);
+ // Centavos por extenso sem a palavra 'reais': '50 centavos' e
+ // '25 mil e 50 centavos'. O 'e' em 'trinta e cinco centavos' continua
+ // pertencendo ao número 35, e não separa reais de centavos.
+ for(let i=0;i<tokens.length;i++){
+  if(tokens[i]!=='centavo'&&tokens[i]!=='centavos')continue;
+  if(tokens.slice(Math.max(0,i-5),i).some(t=>moneyLabels.has(t)))continue;
+  for(let e=i-2;e>=Math.max(0,i-10);e--){
+   if(tokens[e]!=='e')continue;
+   const fractional=readNumber(tokens,e+1);
+   if(!fractional||fractional.end!==i||!Number.isInteger(fractional.value)||fractional.value<0||fractional.value>=100)continue;
+   const whole=readBefore(tokens.slice(0,e),e);
+   if(whole&&whole.value>=1000){
+    const cents=amountToCents(whole.value);
+    if(cents!==null&&cents+fractional.value<=MAX_AMOUNT_CENTS)return cents+fractional.value;
+   }
+  }
+  const centsPart=readBefore(tokens,i);
+  if(centsPart&&Number.isInteger(centsPart.value)&&centsPart.value>0&&centsPart.value<=MAX_AMOUNT_CENTS)return centsPart.value;
+ }
+ // 1. Valor com R$ tem prioridade sobre litros, quilômetros e contagem de entregas.
+ for(let i=0;i<tokens.length;i++){
+  if(tokens[i]!=='r$')continue;
+  const found=readNumber(tokens,i+1);
+  if(found){const cents=moneyCandidate(tokens,found,moneyLabels.has(tokens[found.end]||'')?found.end:undefined);
+   if(cents!==null)return cents;}
+ }
+ // 2. 25 mil reais, mil reais, 1.250,50 reais, vinte e cinco reais.
+ for(let i=0;i<tokens.length;i++){
+  if(!moneyLabels.has(tokens[i]))continue;
+  const found=readBefore(tokens,i);
+  if(found){const cents=moneyCandidate(tokens,found,i);if(cents!==null)return cents;}
+ }
+ // 3. Comandos informais sem 'reais': 'recebi 25 mil', 'abasteci mil'.
+ // Não transforma 'ganhei 5 entregas' ou 'abasteci 8 litros' em valores monetários.
+ for(let i=0;i<tokens.length;i++){
+  if(!moneyVerbs.has(tokens[i]))continue;
+  let start=i+1;
+  while(['uns','umas','um','uma','cerca','de','aproximadamente','mais','ou','menos'].includes(tokens[start])&&start<i+5)start++;
+  // 'um mil' não deve perder o multiplicador 'um'.
+  if(tokens[i+1]==='um'||tokens[i+1]==='uma')start=i+1;
+  const found=readNumber(tokens,start);
+  if(!found||isPhysicalQuantity(tokens,found.end))continue;
+  const cents=moneyCandidate(tokens,found,moneyLabels.has(tokens[found.end]||'')?found.end:undefined);
+  if(cents!==null)return cents;
+ }
+ // 4. '25 mil' isolado pode ser conferido, mas quantidades físicas isoladas não.
+ // Com mais de uma quantidade sem verbo monetário, exigimos esclarecimento.
+ let foundCount=0,candidate:number|null=null;
+ for(let i=0;i<tokens.length;i++){
+  if(!(tokens[i] in units)&&!['mil','k','milhao','milhoes'].includes(tokens[i])&&numericBR(tokens[i])===null)continue;
+  const found=readNumber(tokens,i);
+  if(!found||isPhysicalQuantity(tokens,found.end)){i=found?Math.max(i,found.end-1):i;continue;}
+  if(tokens.some(t=>physicalLabels.has(t)))return null;
+  const cents=moneyCandidate(tokens,found);
+  if(cents!==null){candidate=cents;foundCount++;}
+  i=Math.max(i,found.end-1);
+ }
+ return foundCount===1?candidate:null;
 }
 export function parseCommand(text:string):ParsedCommand{
  const original=text.trim().replace(/\s+/g,' ');

@@ -39,7 +39,7 @@ assistantRouter.post('/transcribe',upload.single('audio'),asyncRoute(async(req,r
  const file=await toFile(req.file.buffer,`comando.${extension}`,{type:req.file.mimetype});
  const transcription=await client.audio.transcriptions.create({
   file,model:config.transcriptionModel,language:'pt',
-  prompt:'Áudio curto em português brasileiro de um motoboy. Vocabulário frequente: MotoPRO, Rappidex, Pix, ganhei, recebi, entregas, corridas, gorjeta, abasteci, abastecimento, gasolina, etanol, combustível, manutenção, revisão, óleo, quilômetros, reais e centavos. Os valores devem refletir somente o que a pessoa realmente disse.'
+  prompt:'Áudio curto em português brasileiro de um motoboy. Vocabulário frequente: MotoPRO, Rappidex, Pix, ganhei, recebi, entregas, corridas, gorjeta, abasteci, abastecimento, gasolina, etanol, combustível, manutenção, revisão, óleo, quilômetros, reais e centavos; números grandes como mil, 1000, 1.000, vinte e cinco mil, mil e quinhentos. Os valores devem refletir somente o que a pessoa realmente disse.'
  });
  res.json({text:(transcription.text||'').trim().slice(0,500)});
 }));

@@ -8,6 +8,12 @@ test('IA aceita lançamentos com valores corretos',()=>{
   ['Coloquei cinquenta de gasolina',entry('expense','fuel',5000),5000],
   ['Fiz cento e vinte de corrida',entry('income','delivery',12000),12000],
   ['Abasteci 8 litros e paguei 40',entry('expense','fuel',4000),4000],
+  ['Ganhei 25 mil',entry('income','delivery',2500000),2500000],
+  ['Recebi mil reais',entry('income','delivery',100000),100000],
+  ['Ganhei 1000',entry('income','delivery',100000),100000],
+  ['Recebi 1.000',entry('income','delivery',100000),100000],
+  ['Faturei vinte e cinco mil reais',entry('income','delivery',2500000),2500000],
+  ['Abasteci 8 litros e paguei mil',entry('expense','fuel',100000),100000],
  ] as const){
   const result=validateAICommand(raw,text);
   assert.equal(result.kind,'entry',text);
