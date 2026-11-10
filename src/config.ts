@@ -6,7 +6,7 @@ export const config = {
   appOrigin: process.env.APP_ORIGIN || 'http://localhost:3000',
   isProd: process.env.NODE_ENV === 'production',
   openaiApiKey: process.env.OPENAI_API_KEY || '',
-  transcriptionModel: process.env.OPENAI_TRANSCRIPTION_MODEL || 'gpt-4o-transcribe',
+  transcriptionModel: process.env.OPENAI_TRANSCRIPTION_MODEL || 'gpt-transcribe',
   commandModel: process.env.OPENAI_COMMAND_MODEL || 'gpt-4o-mini'
 };
 export function validateConfig() {

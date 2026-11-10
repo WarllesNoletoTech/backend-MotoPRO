@@ -1,7 +1,7 @@
 import {Router} from 'express';
 import {z} from 'zod';
 import multer from 'multer';
-import OpenAI,{toFile} from 'openai';
+import {recognizeAudio,speechModel} from '../services/speechToText.js';
 import {config} from '../config.js';
 import {interpretWithAI} from '../services/aiCommands.js';
 import {asyncRoute,HttpError} from '../utils/http.js';
@@ -34,12 +34,7 @@ assistantRouter.post('/transcribe',upload.single('audio'),asyncRoute(async(req,r
  if(!Number.isFinite(durationMs)||durationMs<200||durationMs>10_750)
   throw new HttpError(400,'O áudio deve ter no máximo 10 segundos. Grave um comando curto.');
  if(!config.openaiApiKey)throw new HttpError(503,'Transcrição por voz ainda não configurada no servidor. Use o comando digitado.');
- const client=new OpenAI({apiKey:config.openaiApiKey});
- const extension=req.file.mimetype.includes('webm')?'webm':req.file.mimetype.includes('ogg')?'ogg':req.file.mimetype.includes('wav')?'wav':'mp4';
- const file=await toFile(req.file.buffer,`comando.${extension}`,{type:req.file.mimetype});
- const transcription=await client.audio.transcriptions.create({
-  file,model:config.transcriptionModel,language:'pt',
-  prompt:'Áudio curto em português brasileiro de um motoboy. Vocabulário frequente: MotoPRO, Rappidex, Pix, ganhei, recebi, entregas, corridas, gorjeta, abasteci, abastecimento, gasolina, etanol, combustível, manutenção, revisão, óleo, quilômetros, reais e centavos; números grandes como mil, 1000, 1.000, vinte e cinco mil, mil e quinhentos. Os valores devem refletir somente o que a pessoa realmente disse.'
- });
- res.json({text:(transcription.text||'').trim().slice(0,500)});
+ const model=speechModel(config.transcriptionModel,req.body?.mode==='alternative');
+ const recognized=await recognizeAudio(req.file.buffer,req.file.mimetype,config.openaiApiKey,model);
+ res.json({text:recognized,engine:model});
 }));
