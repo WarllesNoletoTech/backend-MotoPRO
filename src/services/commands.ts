@@ -57,6 +57,10 @@ export function extractAmountCents(text:string):number|null{
  if(currency){const value=numericCents(currency[1]);if(value!==null)return value;}
  const monetary=s.match(/\b(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)\s*(?:reais?|contos?)\b/);
  if(monetary){const value=numericCents(monetary[1]);if(value!==null)return value;}
+ // Quando houver quilômetros/litros e também um preço sem "reais", priorize
+ // o número próximo a um verbo financeiro ("8 litros e paguei 40").
+ const paid=s.match(/\b(?:paguei|ganhei|recebi|gastei|custou|deu|rendeu|faturei|entrou)\s+(?:r\$\s*)?(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)\b/);
+ if(paid){const value=numericCents(paid[1]);if(value!==null)return value;}
  const spoken=wordAmount(s);
  if(spoken!==null)return spoken;
  const fallback=s.match(/\b\d+(?:\.\d{3})*(?:,\d{1,2})?\b|\b\d+(?:[.,]\d{1,2})?\b/);

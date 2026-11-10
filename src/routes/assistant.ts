@@ -3,7 +3,7 @@ import {z} from 'zod';
 import multer from 'multer';
 import OpenAI,{toFile} from 'openai';
 import {config} from '../config.js';
-import {parseCommand} from '../services/commands.js';
+import {interpretWithAI} from '../services/aiCommands.js';
 import {asyncRoute,HttpError} from '../utils/http.js';
 import {uid} from '../services/auth.js';
 import {User} from '../models/User.js';
@@ -16,15 +16,15 @@ const upload=multer({storage:multer.memoryStorage(),limits:{fileSize:2*1024*1024
 }});
 assistantRouter.post('/interpret',asyncRoute(async(req,res)=>{
  const {text}=z.object({text:z.string().trim().min(1).max(500)}).parse(req.body);
- const result=parseCommand(text);
+ const {command:result,engine,advisory}=await interpretWithAI(text,config.openaiApiKey,config.commandModel);
  if(result.kind==='summary'){
   const user=await User.findById(uid(req)).select('timezone');
   const today=dateInTimezone(user?.timezone||'America/Belem');
   const range=result.period==='today'?{from:today,to:today}:weekRangeTuesday(today);
   const summary=await financialSummary(uid(req),range.from,range.to);
-  return res.json({...result,summary,range});
+  return res.json({...result,summary,range,engine,advisory});
  }
- res.json(result);
+ res.json({...result,engine,advisory});
 }));
 assistantRouter.post('/transcribe',upload.single('audio'),asyncRoute(async(req,res)=>{
  if(!req.file)throw new HttpError(400,'Envie uma gravação de áudio válida');

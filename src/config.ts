@@ -6,7 +6,8 @@ export const config = {
   appOrigin: process.env.APP_ORIGIN || 'http://localhost:3000',
   isProd: process.env.NODE_ENV === 'production',
   openaiApiKey: process.env.OPENAI_API_KEY || '',
-  transcriptionModel: process.env.OPENAI_TRANSCRIPTION_MODEL || 'gpt-4o-mini-transcribe'
+  transcriptionModel: process.env.OPENAI_TRANSCRIPTION_MODEL || 'gpt-4o-transcribe',
+  commandModel: process.env.OPENAI_COMMAND_MODEL || 'gpt-4o-mini'
 };
 export function validateConfig() {
   if(config.jwtSecret.length < 32) throw new Error('JWT_SECRET precisa ter pelo menos 32 caracteres. Configure uma chave aleatória no Heroku (ou no .env local).');
