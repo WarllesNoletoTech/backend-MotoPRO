@@ -13,10 +13,13 @@ const schema=z.object({
   occurredOn:z.string().refine(isValidDateOnly,'Data inválida'),
   source:z.enum(['manual','voice']).default('manual'),
   fuelLiters:z.number().positive().max(200).optional(),
-  odometerKm:z.number().nonnegative().max(2_000_000).optional()
+  odometerKm:z.number().nonnegative().max(2_000_000).optional(),
+  fuelType:z.enum(['gasolina','etanol','diesel','outro']).optional(),
+  fuelStation:z.string().trim().max(100).optional()
 }).superRefine((v,ctx)=>{
   if(v.type==='income'&&!['delivery','bonus','other'].includes(v.category))ctx.addIssue({code:'custom',path:['category'],message:'Categoria incompatível com receita'});
   if(v.type==='expense'&&['delivery','bonus'].includes(v.category))ctx.addIssue({code:'custom',path:['category'],message:'Categoria incompatível com despesa'});
+  if(v.category!=='fuel'&&(v.fuelLiters!==undefined||v.fuelType!==undefined||v.fuelStation))ctx.addIssue({code:'custom',path:['category'],message:'Detalhes de abastecimento exigem categoria Combustível'});
 });
 const patchSchema=schema.innerType().partial();
 entriesRouter.get('/export',asyncRoute(async(req,res)=>{
@@ -26,8 +29,8 @@ entriesRouter.get('/export',asyncRoute(async(req,res)=>{
    const safe=/^[=+@-]/.test(value)?`'${value}`:value;
    return `"${safe.replace(/"/g,'""')}"`;
  };
- const columns=['Data','Tipo','Categoria','Descricao','Valor (R$)','Origem'];
- const rows=items.map(i=>[i.occurredOn,i.type,i.category,i.description,(i.amountCents/100).toFixed(2).replace('.',','),i.source].map(csvCell).join(';'));
+ const columns=['Data','Tipo','Categoria','Descricao','Valor (R$)','Origem','Litros','Quilometragem','Combustivel','Posto'];
+ const rows=items.map(i=>[i.occurredOn,i.type,i.category,i.description,(i.amountCents/100).toFixed(2).replace('.',','),i.source,i.fuelLiters??'',i.odometerKm??'',i.fuelType??'',i.fuelStation??''].map(csvCell).join(';'));
  res.setHeader('Content-Type','text/csv; charset=utf-8');
  res.setHeader('Content-Disposition','attachment; filename="motopro-lancamentos.csv"');
  res.send('\ufeff'+[columns.join(';'),...rows].join('\r\n'));
@@ -59,10 +62,13 @@ entriesRouter.patch('/:id',asyncRoute(async(req,res)=>{
   const current=await Entry.findOne({_id:req.params.id,userId:uid(req)});
   if(!current)throw new HttpError(404,'Lançamento não encontrado');
   if(current.source==='integration')throw new HttpError(403,'Importações devem ser corrigidas na plataforma de origem');
-  const merged=schema.parse({...current.toObject(),...patch});
-  for(const key of ['type','category','amountCents','description','occurredOn','source','fuelLiters','odometerKm'] as const){
+  const candidate={...current.toObject(),...patch};
+  if(patch.category&&patch.category!=='fuel'){delete candidate.fuelLiters;delete candidate.fuelType;delete candidate.fuelStation;}
+  const merged=schema.parse(candidate);
+  for(const key of ['type','category','amountCents','description','occurredOn','source','fuelLiters','odometerKm','fuelType','fuelStation'] as const){
     if(key in merged)current.set(key,merged[key]);
   }
+  if(patch.category&&patch.category!=='fuel'){current.set('fuelLiters',undefined);current.set('fuelType',undefined);current.set('fuelStation',undefined);}
   await current.save();res.json({entry:current});
 }));
 entriesRouter.delete('/:id',asyncRoute(async(req,res)=>{

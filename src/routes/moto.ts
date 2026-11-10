@@ -2,9 +2,11 @@ import {Router} from 'express';
 import {z} from 'zod';
 import {Motorcycle} from '../models/Motorcycle.js';
 import {Maintenance} from '../models/Maintenance.js';
+import {Entry} from '../models/Entry.js';
+import mongoose from 'mongoose';
 import {uid} from '../services/auth.js';
 import {asyncRoute,HttpError,validId} from '../utils/http.js';
-import {isValidDateOnly} from '../utils/dates.js';
+import {dateInTimezone,isValidDateOnly} from '../utils/dates.js';
 export const motoRouter=Router();
 const bikeSchema=z.object({model:z.string().trim().min(2).max(100),year:z.number().int().min(1980).max(2100).optional(),odometerKm:z.number().min(0).max(2_000_000),kmPerLiter:z.number().min(1).max(150).optional()});
 const reminderSchema=z.object({label:z.string().trim().min(2).max(120),dueOn:z.string().refine(isValidDateOnly).optional(),dueKm:z.number().min(0).max(2_000_000).optional()}).refine(v=>Boolean(v.dueOn||v.dueKm!==undefined),'Informe data ou quilometragem');
@@ -25,4 +27,23 @@ motoRouter.patch('/reminders/:id/done',asyncRoute(async(req,res)=>{
   if(!validId(req.params.id))throw new HttpError(400,'ID inválido');
   const reminder=await Maintenance.findOneAndUpdate({_id:req.params.id,userId:uid(req)},{$set:{done:true}},{new:true});
   if(!reminder)throw new HttpError(404,'Lembrete não encontrado');res.json({reminder});
+}));
+
+// Os abastecimentos reutilizam lançamentos financeiros (categoria fuel).
+// Isso evita duas despesas para uma mesma compra e preserva exportação e relatórios.
+motoRouter.get('/fuel',asyncRoute(async(req,res)=>{
+  const userId=uid(req);
+  const from=dateInTimezone().slice(0,7)+'-01';
+  const to=from.slice(0,7)+'-31';
+  const [items,totals]=await Promise.all([
+    Entry.find({userId,type:'expense',category:'fuel'})
+      .select('_id amountCents occurredOn description source fuelLiters odometerKm fuelType fuelStation')
+      .sort({occurredOn:-1,createdAt:-1}).limit(30).lean(),
+    Entry.aggregate<{_id:null;amountCents:number;liters:number;count:number}>([
+      {$match:{userId:new mongoose.Types.ObjectId(userId),type:'expense',category:'fuel',occurredOn:{$gte:from,$lte:to}}},
+      {$group:{_id:null,amountCents:{$sum:'$amountCents'},liters:{$sum:{$ifNull:['$fuelLiters',0]}},count:{$sum:1}}}
+    ])
+  ]);
+  const summary=totals[0]||{amountCents:0,liters:0,count:0};
+  res.json({items,summary:{month:from.slice(0,7),amountCents:summary.amountCents,liters:Number(summary.liters.toFixed(3)),count:summary.count}});
 }));

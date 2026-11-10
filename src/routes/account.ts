@@ -18,7 +18,7 @@ accountRouter.get('/export',asyncRoute(async(req,res)=>{
  const userId=new mongoose.Types.ObjectId(uid(req));
  const [user,entries,motorcycle,reminders,goal,subscription,payments,settings]=await Promise.all([
    User.findById(userId).select('name email phone role timezone trialEndsAt createdAt').lean(),
-   Entry.find({userId}).select('type category description amountCents occurredOn source fuelLiters odometerKm createdAt').sort({occurredOn:-1}).lean(),
+   Entry.find({userId}).select('type category description amountCents occurredOn source fuelLiters odometerKm fuelType fuelStation createdAt').sort({occurredOn:-1}).lean(),
    Motorcycle.findOne({userId}).select('model year odometerKm kmPerLiter').lean(),
    Maintenance.find({userId}).select('label dueOn dueKm done createdAt').lean(),
    Goal.findOne({userId}).select('weeklyTargetCents').lean(),
