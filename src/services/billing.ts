@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import {BillingPayment} from '../models/BillingPayment.js';
 import {BillingSubscription} from '../models/BillingSubscription.js';
+import {awardReferralIfEligible,reverseReferralOnRefund} from './referrals.js';
 import {MpAuthorizedPayment,MpPix,MpPixOrder,MpSubscription,mp,mpPix} from './mercadoPago.js';
 
 // Somente confirmações consultadas diretamente na API do provedor liberam acesso.
@@ -43,8 +44,10 @@ export async function syncPixPayment(providerPaymentId:string){
  if(mpPayment.status==='approved'){
   pay.status='approved';pay.paidAt=new Date();await pay.save();
   await applyApprovedPayment(pay.userId,providerPaymentId,'pix');
+  await awardReferralIfEligible(pay.userId);
  }else if(['rejected','cancelled','refunded','charged_back'].includes(mpPayment.status)){
   pay.status=mpPayment.status==='refunded'?'refunded':'rejected';await pay.save();
+  if(['refunded','charged_back'].includes(mpPayment.status))await reverseReferralOnRefund(pay._id);
  }
 }
 export async function syncCreditSubscription(providerSubscriptionId:string){
@@ -68,6 +71,7 @@ export async function syncCreditPayment(id:string){
   $set:{status:'approved',paidAt:new Date()}
  },{upsert:true,new:true,runValidators:true});
  await applyApprovedPayment(sub.userId,providerKey,'credit');
+ await awardReferralIfEligible(sub.userId);
 }
 
 /** A notificação é apenas um aviso: sempre consultamos a order com o token do MotoPRO PIX. */
@@ -95,11 +99,14 @@ export async function syncPixOrder(providerOrderId:string){
   pay.paidAt ||= new Date();
   await pay.save();
   await applyApprovedPayment(pay.userId,`pix_order_${providerOrderId}`,'pix');
+  await awardReferralIfEligible(pay.userId);
  } else if(remote.status==='refunded'){
   pay.status='refunded';await pay.save();
+  await reverseReferralOnRefund(pay._id);
   // Reembolsos precisam de conciliação administrativa antes de ajustar acesso histórico.
  } else if(['failed','canceled','charged_back'].includes(remote.status)){
   pay.status=remote.status==='canceled'?'canceled':'rejected';await pay.save();
+  if(remote.status==='charged_back')await reverseReferralOnRefund(pay._id);
  } else {
   await pay.save();
  }

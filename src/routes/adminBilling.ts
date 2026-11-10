@@ -5,6 +5,7 @@ import {BillingPayment} from '../models/BillingPayment.js';
 import {BillingSubscription} from '../models/BillingSubscription.js';
 import {CourtesyGrant} from '../models/CourtesyGrant.js';
 import {RewardCampaign} from '../models/RewardCampaign.js';
+import {ReferralReward} from '../models/ReferralReward.js';
 import {AdminAudit} from '../models/AdminAudit.js';
 import {AdminSetting,getAdminSettings} from '../models/AdminSetting.js';
 import {User} from '../models/User.js';
@@ -140,6 +141,45 @@ adminBillingRouter.get('/payments',asyncRoute(async(req,res)=>{
   method:x.method,status:x.status,amountCents:x.amountCents,providerPaymentId:x.providerPaymentId||'',
   createdAt:x.createdAt,paidAt:x.paidAt||null
  }))});
+}));
+
+
+// O prêmio é um crédito a repassar manualmente, não um desconto na assinatura.
+adminBillingRouter.get('/referrals',asyncRoute(async(req,res)=>{
+ const {page,limit}=pageParams(req.query);
+ const status=z.enum(['all','available','paid','reversed']).parse(req.query.status||'all');
+ const filter=status==='all'?{}:{status};
+ const [total,items,totals]=await Promise.all([
+  ReferralReward.countDocuments(filter),
+  ReferralReward.find(filter).sort({createdAt:-1}).skip((page-1)*limit).limit(limit).lean(),
+  ReferralReward.aggregate<{_id:string;sum:number;count:number}>([{$group:{_id:'$status',sum:{$sum:'$amountCents'},count:{$sum:1}}}])
+ ]);
+ const ids=[...new Set(items.flatMap(r=>[String(r.referrerId),String(r.referredUserId)]))];
+ const users=await User.find({_id:{$in:ids}}).select('name email phone').lean();
+ const userById=new Map(users.map(u=>[String(u._id),u]));
+ res.setHeader('Cache-Control','private, no-store');
+ res.json({page,limit,total,
+  availableCents:totals.find(x=>x._id==='available')?.sum||0,
+  paidCents:totals.find(x=>x._id==='paid')?.sum||0,
+  reversedCents:totals.find(x=>x._id==='reversed')?.sum||0,
+  items:items.map(r=>({id:String(r._id),referrerId:String(r.referrerId),
+   referrerName:userById.get(String(r.referrerId))?.name||'Conta indisponível',
+   referrerPhone:userById.get(String(r.referrerId))?.phone||null,
+   referredName:userById.get(String(r.referredUserId))?.name||'Conta indisponível',
+   amountCents:r.amountCents,status:r.status,createdAt:r.createdAt,
+   paidAt:r.paidAt||null,payoutNote:r.payoutNote||''}))});
+}));
+
+// Esta ação NÃO transfere dinheiro; confirma que o administrador pagou fora do MotoPRO.
+adminBillingRouter.post('/referrals/:id/mark-paid',asyncRoute(async(req,res)=>{
+ const rewardId=getId(req.params.id);
+ const data=z.object({note:z.string().trim().min(4).max(240)}).strict().parse(req.body);
+ const result=await ReferralReward.findOneAndUpdate({_id:rewardId,status:'available'},
+  {$set:{status:'paid',paidAt:new Date(),paidBy:getId(uid(req)),payoutNote:data.note}},
+  {new:true,runValidators:true});
+ if(!result)throw new HttpError(409,'Bônus já pago, estornado ou não encontrado. Atualize a lista.');
+ await audit(uid(req),'referral.mark_paid',result.referrerId,{rewardId:String(result._id),amountCents:result.amountCents,note:data.note});
+ res.json({ok:true});
 }));
 
 adminBillingRouter.get('/settings',asyncRoute(async(_req,res)=>{

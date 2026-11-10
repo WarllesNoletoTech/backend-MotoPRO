@@ -10,6 +10,8 @@ import {billingRouter} from './routes/billing.js';
 import {mercadoPagoWebhookRouter} from './routes/mercadoPagoWebhook.js';
 import {adminBillingRouter} from './routes/adminBilling.js';
 import {RewardCampaign} from './models/RewardCampaign.js';
+import {ReferralReward} from './models/ReferralReward.js';
+import {User} from './models/User.js';
 import {getAdminSettings} from './models/AdminSetting.js';
 import {entriesRouter} from './routes/entries.js';
 import {dashboardRouter} from './routes/dashboard.js';
@@ -21,10 +23,13 @@ import {requirePremium} from './services/premium.js';
 import {requireCompleteName} from './services/completeName.js';
 import {accountRouter} from './routes/account.js';
 import {integrationsRouter} from './routes/integrations.js';
+import {referralsRouter} from './routes/referrals.js';
 
 async function bootstrap(){
  validateConfig();
  await mongoose.connect(config.mongoUri,{serverSelectionTimeoutMS:10000});
+ // Índices únicos devem existir antes de processar pagamentos ou novos cadastros.
+ await Promise.all([User.init(),ReferralReward.init()]);
  const app=express();
  app.disable('x-powered-by');
  app.set('trust proxy',1);
@@ -45,6 +50,7 @@ async function bootstrap(){
  app.use('/api/webhooks/mercadopago',mercadoPagoWebhookRouter);
  app.use('/api/billing',requireAuth,billingRouter);
  app.use('/api/admin/billing',requireAuth,adminBillingRouter);
+ app.use('/api/referrals',requireAuth,referralsRouter); // Indicações disponíveis mesmo sem Premium ativo.
  app.use('/api/account',requireAuth,accountRouter); // Dados próprios disponíveis mesmo após vencimento.
  app.get('/api/campaigns',requireAuth,requirePremium,async(_req,res,next)=>{try{const docs=await RewardCampaign.find({status:{$in:['published','closed']}}).sort({createdAt:-1}).limit(30).select('title description reward objectiveCriteria startsAt endsAt status resultSummary').lean();res.json({items:docs});}catch(err){next(err);}});
  app.use('/api/dashboard',requireAuth,requirePremium,dashboardRouter);

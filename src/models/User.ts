@@ -14,6 +14,9 @@ const schema = new Schema({
   timezone:{type:String,default:'America/Belem'},
   // Para usuários antigos pode estar ausente até completar o cadastro.
   phone:{type:String,trim:true,default:null,maxlength:16},
+  // Indicação atribuída apenas no cadastro; nunca pode ser alterada pelo cliente.
+  referralCode:{type:String,trim:true,uppercase:true,unique:true,sparse:true,maxlength:12},
+  referredBy:{type:Schema.Types.ObjectId,ref:'User',default:null,index:true},
   // Campo legado. A autorização SEMPRE usa createdAt + dias atuais definidos pelo admin.
   trialEndsAt:{type:Date,default:null}
 },{timestamps:true});
