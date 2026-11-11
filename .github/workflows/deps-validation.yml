@@ -1,0 +1,37 @@
+name: Dependencias temporarias para validar pacote offline
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/fase1-financeiro-admin-20261111]
+permissions:
+  contents: read
+jobs:
+  dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: WarllesNoletoTech/backend-MotoPRO
+          ref: feat/fase1-financeiro-admin-20261111
+          path: backend-MotoPRO
+      - uses: actions/checkout@v4
+        with:
+          repository: WarllesNoletoTech/frontend-MotoPRO
+          ref: feat/fase1-financeiro-admin-20261111
+          path: frontend-MotoPRO
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Instalar backend
+        working-directory: backend-MotoPRO
+        run: npm ci
+      - name: Instalar frontend
+        working-directory: frontend-MotoPRO
+        run: npm ci
+      - name: Empacotar somente dependencias
+        run: tar -czf dependencias.tar.gz backend-MotoPRO/node_modules frontend-MotoPRO/node_modules
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dep-typecheck-motopro-fase1
+          path: dependencias.tar.gz
+          retention-days: 1
