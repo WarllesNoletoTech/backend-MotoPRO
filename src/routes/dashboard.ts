@@ -25,11 +25,29 @@ export async function financialSummary(userId:string,from:string,to:string){
 }
 dashboardRouter.get('/',asyncRoute(async(req,res)=>{
   const user=await User.findById(uid(req)).select('timezone');
-  const range=weekRangeTuesday(dateInTimezone(user?.timezone||'America/Belem'));
+  const today=dateInTimezone(user?.timezone||'America/Belem');
+  const range=weekRangeTuesday(today);
   const from=String(req.query.from||range.from),to=String(req.query.to||range.to);
   if(!isValidDateOnly(from)||!isValidDateOnly(to)||from>to)throw new HttpError(400,'Período inválido');
   const days=Math.round((new Date(`${to}T00:00:00Z`).getTime()-new Date(`${from}T00:00:00Z`).getTime())/86400000)+1;
   if(days>31)throw new HttpError(400,'Período máximo de 31 dias');
-  const [summary,goal]=await Promise.all([financialSummary(uid(req),from,to),Goal.findOne({userId:uid(req)}).lean()]);
-  res.json({period:{from,to},...summary,goal:goal?{weeklyTargetCents:goal.weeklyTargetCents}:null});
+  const monthStart=`${today.slice(0,7)}-01`;
+  const [summary,monthSummary,goal]=await Promise.all([
+    financialSummary(uid(req),from,to),
+    financialSummary(uid(req),monthStart,today),
+    Goal.findOne({userId:uid(req)}).lean()
+  ]);
+  const daysInMonth=new Date(Number(today.slice(0,4)),Number(today.slice(5,7)),0).getDate();
+  const remainingDays=Math.max(1,daysInMonth-Number(today.slice(8,10))+1);
+  const monthlyTargetCents=goal?.monthlyTargetCents||0;
+  const remainingCents=Math.max(0,monthlyTargetCents-monthSummary.profitCents);
+  res.json({period:{from,to},...summary,goal:goal?{
+    weeklyTargetCents:goal.weeklyTargetCents||0,monthlyTargetCents
+  }:null,month:{
+    period:{from:monthStart,to:today},incomeCents:monthSummary.incomeCents,
+    expenseCents:monthSummary.expenseCents,profitCents:monthSummary.profitCents,
+    daysRemaining:remainingDays,targetCents:monthlyTargetCents,
+    remainingCents,requiredDailyCents:monthlyTargetCents?Math.ceil(remainingCents/remainingDays):0,
+    progressPercent:monthlyTargetCents?Math.max(0,Math.min(100,Math.round(monthSummary.profitCents/monthlyTargetCents*100))):0
+  }});
 }));

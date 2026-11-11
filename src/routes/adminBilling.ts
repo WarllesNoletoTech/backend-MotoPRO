@@ -9,6 +9,8 @@ import {ReferralReward} from '../models/ReferralReward.js';
 import {AdminAudit} from '../models/AdminAudit.js';
 import {AdminSetting,getAdminSettings} from '../models/AdminSetting.js';
 import {User} from '../models/User.js';
+import {Entry} from '../models/Entry.js';
+import {adminInsightsRouter} from './adminInsights.js';
 import {uid} from '../services/auth.js';
 import {asyncRoute,HttpError} from '../utils/http.js';
 import {pixPaymentConfig} from '../services/mercadoPago.js';
@@ -35,7 +37,7 @@ const audit=async(actorId:string,action:string,targetId?:mongoose.Types.ObjectId
  await AdminAudit.create({actorId:getId(actorId),action,targetId,metadata});
 };
 const publicUser=(u:any,trialDays:number)=>({id:String(u._id),name:u.name,email:u.email,phone:u.phone||null,role:u.role,
- blocked:!!u.blockedAt,blockReason:u.blockReason||'',createdAt:u.createdAt,lastLoginAt:u.lastLoginAt??null,
+ blocked:!!u.blockedAt,blockReason:u.blockReason||'',createdAt:u.createdAt,lastLoginAt:u.lastLoginAt??null,lastActivityAt:u.lastActivityAt??null,
  trialEndsAt:currentTrialUntil(u.createdAt,trialDays)});
 const escapeRegex=(s:string)=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
 
@@ -43,16 +45,20 @@ adminBillingRouter.get('/overview',asyncRoute(async(_req,res)=>{
  const now=new Date();
  // Corrige registros antigos mesmo sem acesso recente do motoboy.
  await BillingSubscription.updateMany({status:'active',activeUntil:{$lte:now}},{$set:{status:'expired'}});
- const [users,blocked,active,expiring,expired,activeCourtesy,approved,settings]=await Promise.all([
+ const lastDay=new Date(now.getTime()-24*3600_000),lastWeek=new Date(now.getTime()-7*86400_000);
+ const [users,blocked,active,expiring,expired,activeCourtesy,approved,settings,active24h,new7d,entries7d]=await Promise.all([
   User.countDocuments({role:'driver'}),User.countDocuments({role:'driver',blockedAt:{$ne:null}}),
   BillingSubscription.countDocuments({status:'active',activeUntil:{$gt:now}}),
   BillingSubscription.countDocuments({status:'active',activeUntil:{$gt:now,$lte:new Date(now.getTime()+REMINDER_WINDOW_MS)}}),
   BillingSubscription.countDocuments({status:'expired'}),
   CourtesyGrant.countDocuments({activeUntil:{$gt:now}}),
   BillingPayment.aggregate<{_id:null;sum:number;count:number}>([{$match:{status:'approved'}},{$group:{_id:null,sum:{$sum:'$amountCents'},count:{$sum:1}}}]),
-  getAdminSettings()
+  getAdminSettings(),
+  User.countDocuments({role:'driver',lastActivityAt:{$gte:lastDay}}),
+  User.countDocuments({role:'driver',createdAt:{$gte:lastWeek}}),
+  Entry.countDocuments({createdAt:{$gte:lastWeek}})
  ]);
- res.json({users,blockedUsers:blocked,activeSubscribers:active,expiringSubscribers:expiring,expiredSubscribers:expired,activeCourtesy,
+ res.json({users,active24h,new7d,entries7d,blockedUsers:blocked,activeSubscribers:active,expiringSubscribers:expiring,expiredSubscribers:expired,activeCourtesy,
   receivedCents:approved[0]?.sum||0,approvedPayments:approved[0]?.count||0,
   weeklyPriceCents:settings.weeklyPriceCents,trialDays:settings.trialDays,premiumRequired:settings.premiumRequired,
   billingEnabled:pixPaymentConfig().enabled,
@@ -67,7 +73,7 @@ adminBillingRouter.get('/users',asyncRoute(async(req,res)=>{
  if(query.filter==='active')filter.blockedAt=null;
  if(query.search)filter.$or=[{name:{$regex:escapeRegex(query.search),$options:'i'}},{email:{$regex:escapeRegex(query.search),$options:'i'}}];
  const [count,users,settings]=await Promise.all([User.countDocuments(filter),User.find(filter)
-  .select('name email phone role blockedAt blockReason trialEndsAt lastLoginAt createdAt')
+  .select('name email phone role blockedAt blockReason trialEndsAt lastLoginAt lastActivityAt createdAt')
   .sort({createdAt:-1}).skip((page-1)*limit).limit(limit).lean(),getAdminSettings()]);
  const ids=users.map(u=>u._id);
  const [subscriptions,courtesies]=await Promise.all([
@@ -228,3 +234,6 @@ adminBillingRouter.get('/audit',asyncRoute(async(_req,res)=>{
  const items=await AdminAudit.find().sort({createdAt:-1}).limit(60).select('action targetId metadata createdAt').lean();
  res.json({items});
 }));
+
+// Insights herda a autorização e a identidade do administrador.
+adminBillingRouter.use(adminInsightsRouter);

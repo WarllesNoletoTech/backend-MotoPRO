@@ -25,9 +25,14 @@ export const requireAuth=asyncRoute(async(req,_res,next)=>{
   let payload:jwt.JwtPayload;
   try{const decoded=jwt.verify(token,config.jwtSecret,{issuer:'motopro'});if(typeof decoded==='string'||!decoded.sub)throw new Error('token');payload=decoded;}
   catch{throw new HttpError(401,'Sessão expirada. Entre novamente.');}
-  const user=await User.findById(payload.sub).select('_id blockedAt');
+  const user=await User.findById(payload.sub).select('_id blockedAt lastActivityAt');
   if(!user)throw new HttpError(401,'Conta não encontrada');
   if(user.blockedAt)throw new HttpError(403,'Conta temporariamente bloqueada. Contate o suporte.');
+  // Atualização por janela de cinco minutos: último uso real, sem gravar a cada requisição.
+  const cutoff=new Date(Date.now()-5*60_000);
+  if(!user.lastActivityAt || user.lastActivityAt<cutoff){
+    await User.updateOne({_id:user._id,$or:[{lastActivityAt:{$exists:false}},{lastActivityAt:null},{lastActivityAt:{$lt:cutoff}}]},{$set:{lastActivityAt:new Date()}});
+  }
   (req as AuthedRequest).authUserId=String(user._id);
   next();
 });

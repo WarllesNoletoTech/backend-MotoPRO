@@ -62,3 +62,10 @@ test('números físicos e valores sem segurança não viram dinheiro',()=>{
  for(const phrase of ['Ganhei 5 entregas','Abasteci 8 litros','Rodei 30 km','Fiz 10 corridas'])
   assert.equal(extractAmountCents(phrase),null,phrase);
 });
+
+test('consultas mensais e semanais respeitam o período',()=>{
+ assert.deepEqual(parseCommand('Quanto lucrei neste mês?'),{kind:'summary',period:'month'});
+ assert.deepEqual(parseCommand('Qual meu saldo mensal?'),{kind:'summary',period:'month'});
+ assert.deepEqual(parseCommand('Quanto ganhei hoje?'),{kind:'summary',period:'today'});
+ assert.deepEqual(parseCommand('Qual meu lucro na semana?'),{kind:'summary',period:'week'});
+});
