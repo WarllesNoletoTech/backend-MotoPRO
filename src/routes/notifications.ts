@@ -5,13 +5,16 @@ import {asyncRoute,HttpError} from '../utils/http.js';
 import {publicPushKey,validatePushSubscription} from '../services/webPush.js';
 import {PushSubscription} from '../models/PushSubscription.js';
 import {User} from '../models/User.js';
+import {OneSignalDevice} from '../models/OneSignalDevice.js';
+import {oneSignalAppId} from '../services/oneSignal.js';
 export const notificationRouter=Router();
 const schema=z.object({endpoint:z.string().max(1800),keys:z.object({p256dh:z.string().max(180),auth:z.string().max(120)}).strict()}).strict();
 notificationRouter.get('/config',asyncRoute(async(req,res)=>{
  const id=uid(req);
- const count=await PushSubscription.countDocuments({userId:id,enabled:true});
+ const osId=oneSignalAppId();
+ const count=osId?await OneSignalDevice.countDocuments({userId:id,enabled:true}):await PushSubscription.countDocuments({userId:id,enabled:true});
  res.setHeader('Cache-Control','private, no-store');
- res.json({supported:!!publicPushKey(),publicKey:publicPushKey(),registeredDevices:count});
+ res.json({supported:!!(osId||publicPushKey()),provider:osId?'onesignal':publicPushKey()?'vapid':'none',oneSignalAppId:osId,publicKey:osId?null:publicPushKey(),registeredDevices:count});
 }));
 notificationRouter.post('/subscribe',asyncRoute(async(req,res)=>{
  const data=schema.parse(req.body);validatePushSubscription(data);
@@ -25,4 +28,20 @@ notificationRouter.post('/unsubscribe',asyncRoute(async(req,res)=>{
  const data=z.object({endpoint:z.string().min(1).max(1800)}).strict().parse(req.body);
  await PushSubscription.deleteOne({endpoint:data.endpoint,userId:uid(req)});
  res.json({ok:true});
+}));
+
+// Dispositivos OneSignal cadastrados apenas após autorização explícita no cliente.
+const oneSignalDevice=z.object({subscriptionId:z.string().uuid()}).strict();
+notificationRouter.post('/onesignal/subscribe',asyncRoute(async(req,res)=>{
+ if(!oneSignalAppId())throw new HttpError(503,'OneSignal não configurado');
+ const {subscriptionId}=oneSignalDevice.parse(req.body);
+ const user=await User.findById(uid(req)).select('role blockedAt').lean() as unknown as {role:string;blockedAt:Date|null}|null;
+ if(!user||user.role!=='driver'||user.blockedAt)throw new HttpError(403,'Conta sem permissão');
+ await OneSignalDevice.findOneAndUpdate({subscriptionId},{$set:{userId:uid(req),enabled:true,lastSeenAt:new Date()}},{upsert:true});
+ res.setHeader('Cache-Control','no-store');res.json({ok:true});
+}));
+notificationRouter.post('/onesignal/unsubscribe',asyncRoute(async(req,res)=>{
+ const {subscriptionId}=oneSignalDevice.parse(req.body);
+ await OneSignalDevice.deleteOne({subscriptionId,userId:uid(req)});
+ res.setHeader('Cache-Control','no-store');res.json({ok:true});
 }));

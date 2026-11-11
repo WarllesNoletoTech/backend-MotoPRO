@@ -1,5 +1,7 @@
 import {PushDelivery} from '../models/PushDelivery.js';
 import {PushSubscription} from '../models/PushSubscription.js';
+import {OneSignalDevice} from '../models/OneSignalDevice.js';
+import {oneSignalSendingReady,sendOneSignalNotice} from './oneSignal.js';
 import {User} from '../models/User.js';
 import {BillingSubscription} from '../models/BillingSubscription.js';
 import {CourtesyGrant} from '../models/CourtesyGrant.js';
@@ -11,13 +13,14 @@ import {subscriptionNotice} from '../utils/subscriptionLifecycle.js';
 import {nameParts} from '../utils/name.js';
 /** Execução diária pelo Heroku Scheduler, nunca a partir de uma rota pública. */
 export async function runDailyPush(maxUsers=150,instant=new Date()){
- if(!pushConfigured())throw new Error('Configure PUSH_VAPID_PUBLIC_KEY, PUSH_VAPID_PRIVATE_KEY e PUSH_CONTACT_EMAIL');
+ const sendViaOneSignal=oneSignalSendingReady();
+ if(!sendViaOneSignal&&!pushConfigured())throw new Error('Configure OneSignal (App ID e REST API Key) ou as chaves VAPID');
  const stats={scanned:0,sent:0,failed:0,skipped:0};
  const max=Math.max(1,Math.min(500,Math.floor(maxUsers)));
  const settings=await getAdminSettings();
- await Promise.all([PushDelivery.init(),PushSubscription.init()]);
+ await Promise.all([PushDelivery.init(),PushSubscription.init(),OneSignalDevice.init()]);
  // Iterar usuários distintos para evitar múltiplas notificações do mesmo dia.
- const userIds=await PushSubscription.distinct('userId',{enabled:true});
+ const userIds=sendViaOneSignal?await OneSignalDevice.distinct('userId',{enabled:true}):await PushSubscription.distinct('userId',{enabled:true});
  for(const id of userIds){
   if(stats.sent+stats.failed>=max)break;
   stats.scanned++;
@@ -40,6 +43,13 @@ export async function runDailyPush(maxUsers=150,instant=new Date()){
    {$set:{status:'sending',claimedAt:instant,count:alerts.count},$inc:{attempts:1}},{new:true});
   if(!claimed){stats.skipped++;continue;}
   try{
+   if(sendViaOneSignal){
+    const active=await OneSignalDevice.exists({userId:id,enabled:true});
+    if(!active){await PushDelivery.deleteOne({_id:claimed._id});stats.skipped++;continue;}
+    await sendOneSignalNotice(String(id),alerts.count);
+    await PushDelivery.updateOne({_id:claimed._id},{$set:{status:'sent',sentAt:instant}});stats.sent++;
+    continue;
+   }
    const devices=await PushSubscription.find({userId:id,enabled:true}).limit(10);
    if(!devices.length){await PushDelivery.deleteOne({_id:claimed._id});stats.skipped++;continue;}
    let sent=0;
