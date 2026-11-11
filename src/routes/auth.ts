@@ -35,7 +35,7 @@ authRouter.post('/register',limit,asyncRoute(async(req,res)=>{
   let user;
   for(let attempt=0;attempt<5;attempt++){
    try{
-    user=await User.create({name:fullName,firstName:data.firstName||nameParts(fullName).firstName,lastName:data.lastName||nameParts(fullName).lastName,email:data.email,phone:data.phone,passwordHash,referredBy:referrer?referrer._id:null,referralCode:makeReferralCode(),trialEndsAt:null});
+    user=await User.create({name:fullName,firstName:data.firstName||nameParts(fullName).firstName,lastName:data.lastName||nameParts(fullName).lastName,email:data.email,phone:data.phone,passwordHash,referredBy:referrer?referrer._id:null,referralCode:makeReferralCode(),trialEndsAt:null,lastLoginAt:new Date(),lastActivityAt:new Date()});
     break;
    }catch(error){
     // Apenas colisão do código aleatório admite nova tentativa.
@@ -51,7 +51,7 @@ authRouter.post('/login',limit,asyncRoute(async(req,res)=>{
   const user=await User.findOne({email}).select('+passwordHash');
   if(!user||!await bcrypt.compare(password,user.passwordHash))throw new HttpError(401,'E-mail ou senha inválidos');
   if(user.blockedAt)throw new HttpError(403,'Conta temporariamente bloqueada. Contate o suporte.');
-  await User.updateOne({_id:user._id},{$set:{lastLoginAt:new Date()}});
+  await User.updateOne({_id:user._id},{$set:{lastLoginAt:new Date(),lastActivityAt:new Date()}});
   setSession(res,String(user._id));res.json({user:userResponse(user,(await getAdminSettings()).trialDays)});
 }));
 authRouter.post('/logout',(_req,res)=>{clearSession(res);res.json({ok:true});});
