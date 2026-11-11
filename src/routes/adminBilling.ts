@@ -11,6 +11,8 @@ import {AdminSetting,getAdminSettings} from '../models/AdminSetting.js';
 import {User} from '../models/User.js';
 import {Entry} from '../models/Entry.js';
 import {adminInsightsRouter} from './adminInsights.js';
+import {adminOperationsRouter} from './adminOperations.js';
+import {adminPrivacyRouter} from './privacyRequests.js';
 import {uid} from '../services/auth.js';
 import {asyncRoute,HttpError} from '../utils/http.js';
 import {pixPaymentConfig} from '../services/mercadoPago.js';
@@ -237,3 +239,5 @@ adminBillingRouter.get('/audit',asyncRoute(async(_req,res)=>{
 
 // Insights herda a autorização e a identidade do administrador.
 adminBillingRouter.use(adminInsightsRouter);
+adminBillingRouter.use(adminOperationsRouter);
+adminBillingRouter.use(adminPrivacyRouter);

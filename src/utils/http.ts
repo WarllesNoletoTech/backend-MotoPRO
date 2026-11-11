@@ -12,6 +12,8 @@ export function errorHandler(err:unknown,_req:Request,res:Response,_next:NextFun
   if(typeof err==='object'&&err!==null&&'code' in err&&err.code===11000)return res.status(409).json({error:'Registro já existente'});
   const e=err as {name?:string;code?:string}|null;
   if(e?.name==='MulterError'||e?.code==='LIMIT_FILE_SIZE')return res.status(400).json({error:'Arquivo inválido ou muito grande'});
-  console.error('API error:',err);
-  return res.status(500).json({error:'Erro interno. Tente novamente.'});
+  // Não enviar stack trace, payload, segredo ou parâmetro para o log público.
+  const requestId=res.getHeader('X-Request-ID');
+  console.error('MotoPRO API failure',JSON.stringify({requestId,kind:e?.name||'Error',status:500}));
+  return res.status(500).json({error:'Erro interno. Tente novamente.',requestId});
 }

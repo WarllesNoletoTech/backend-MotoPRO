@@ -1,4 +1,12 @@
 import express from 'express';
+import {observeRequests} from './services/operations.js';
+import {protectBrowserWrites} from './services/csrf.js';
+import {OperationalEvent} from './models/OperationalEvent.js';
+import {PushSubscription} from './models/PushSubscription.js';
+import {PushDelivery} from './models/PushDelivery.js';
+import {notificationRouter} from './routes/notifications.js';
+import {accountPrivacyRouter} from './routes/privacyRequests.js';
+import {PrivacyRequest} from './models/PrivacyRequest.js';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import mongoose from 'mongoose';
@@ -46,22 +54,23 @@ async function bootstrap(){
  validateConfig();
  await mongoose.connect(config.mongoUri,{serverSelectionTimeoutMS:10000});
  // Índices únicos devem existir antes de processar pagamentos ou novos cadastros.
- await Promise.all([User.init(),ReferralReward.init(),ReportEmailPreference.init(),WeeklyReportDelivery.init(),Entry.init(),ReceiptAnalysis.init(),PrivateCustomer.init(),PrivateDelivery.init(),RecurringExpense.init()]);
+ await Promise.all([User.init(),ReferralReward.init(),ReportEmailPreference.init(),WeeklyReportDelivery.init(),Entry.init(),ReceiptAnalysis.init(),PrivateCustomer.init(),PrivateDelivery.init(),RecurringExpense.init(),OperationalEvent.init(),PushSubscription.init(),PushDelivery.init(),PrivacyRequest.init()]);
  const app=express();
  app.disable('x-powered-by');
  app.set('trust proxy',1);
  app.use(helmet());
+ app.use(observeRequests);
  app.use(express.json({limit:'32kb'}));
  app.use(cookieParser());
  app.use('/api',rateLimit({windowMs:60_000,limit:240,standardHeaders:'draft-7',legacyHeaders:false}));
- // Proteção CSRF para requisições autenticadas do navegador.
- app.use('/api',(req,res,next)=>{
-  if(['GET','HEAD','OPTIONS'].includes(req.method))return next();
-  const origin=req.headers.origin;
-  if(origin && origin!==config.appOrigin)return res.status(403).json({error:'Origem não autorizada'});
-  next();
+ // Protege escritas com cookie; a validação de assinatura do webhook permanece independente.
+ app.use(protectBrowserWrites);
+ app.get('/api/health',(_req,res)=>res.json({status:'ok',service:'motopro-api',version:'1.7.0'}));
+ app.get('/api/ready',(_req,res)=>{
+  const ready=mongoose.connection.readyState===1;
+  res.setHeader('Cache-Control','no-store');
+  res.status(ready?200:503).json({status:ready?'ready':'unavailable',databaseConnected:ready,service:'motopro-api'});
  });
- app.get('/api/health',(_req,res)=>res.json({status:'ok',service:'motopro-api'}));
  app.get('/api/public/settings',async(_req,res,next)=>{try{const s=await getAdminSettings();res.json({announcement:s.announcement,maintenanceNotice:s.maintenanceNotice,premiumBenefits:s.premiumBenefits,trialDays:s.trialDays,weeklyPriceCents:s.weeklyPriceCents});}catch(err){next(err);}});
  app.use('/api/auth',authRouter);
  app.use('/api/webhooks/mercadopago',mercadoPagoWebhookRouter);
@@ -69,6 +78,8 @@ async function bootstrap(){
  app.use('/api/admin/billing',requireAuth,adminBillingRouter);
  app.use('/api/referrals',requireAuth,referralsRouter); // Indicações disponíveis mesmo sem Premium ativo.
  app.use('/api/account',requireAuth,accountRouter);
+ app.use('/api/account/privacy-requests',requireAuth,accountPrivacyRouter);
+ app.use('/api/notifications',requireAuth,notificationRouter);
  app.use('/api/account/report-email',requireAuth,reportEmailPreferencesRouter); // Dados próprios disponíveis mesmo após vencimento.
  app.get('/api/campaigns',requireAuth,requirePremium,async(_req,res,next)=>{try{const docs=await RewardCampaign.find({status:{$in:['published','closed']}}).sort({createdAt:-1}).limit(30).select('title description reward objectiveCriteria startsAt endsAt status resultSummary').lean();res.json({items:docs});}catch(err){next(err);}});
  app.use('/api/dashboard',requireAuth,requirePremium,dashboardRouter);
@@ -88,6 +99,18 @@ async function bootstrap(){
  app.use('/api/integrations',requireAuth,requireCompleteName,integrationsRouter);
  app.use((_req,res)=>res.status(404).json({error:'Rota não encontrada'}));
  app.use(errorHandler);
- app.listen(config.port,()=>console.log(`MotoPRO API: http://localhost:${config.port}`));
+ const server=app.listen(config.port,()=>console.log(`MotoPRO API: http://localhost:${config.port}`));
+ let closing=false;
+ const shutdown=()=>{
+  if(closing)return;closing=true;
+  console.log('Encerrando API MotoPRO de forma controlada');
+  const force=setTimeout(()=>process.exit(1),9500);force.unref();
+  server.close(async()=>{
+   try{await mongoose.disconnect();process.exitCode=0;}
+   catch{process.exitCode=1;}
+   finally{clearTimeout(force);}
+  });
+ };
+ process.once('SIGTERM',shutdown);process.once('SIGINT',shutdown);
 }
 bootstrap().catch(err=>{console.error('Falha ao iniciar API:',err);process.exit(1);});

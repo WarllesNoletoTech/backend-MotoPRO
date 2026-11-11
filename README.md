@@ -61,3 +61,7 @@ Mercado Pago, Rappidex, OpenAI e os envios da Fase 1.
 ## Fase 4 — MotoPRO 1.6.0
 
 Consulte `LEIA_PRIMEIRO_FASE4.txt`, `ALTERACOES_FASE4.md` e `CHECKLIST_HOMOLOGACAO_FASE4.md` na raiz do ZIP completo. A versão inclui despesas recorrentes, avisos internos, produtividade e métricas de adoção; não inclui push nem cobrança de despesas reais.
+
+## MotoPRO 1.7.0 — Fase 5
+
+Ver `../LEIA_PRIMEIRO_FASE5.txt`, `../ALTERACOES_FASE5.md` e `../CHECKLIST_HOMOLOGACAO_FASE5.md`. A ativação de notificações Web Push exige chaves VAPID e agendador Heroku, e o fluxo de privacidade é de solicitação/atendimento manual, sem exclusão automática.
