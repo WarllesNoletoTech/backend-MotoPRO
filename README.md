@@ -56,3 +56,8 @@ permanece restrito ao administrador. Confirmação de recebimento particular adi
 receita a `Entry` com `source/private` e externalId único para evitar duplicidades.
 Nenhum serviço de pagamento externo novo foi introduzido. Preserve as variáveis do
 Mercado Pago, Rappidex, OpenAI e os envios da Fase 1.
+
+
+## Fase 4 — MotoPRO 1.6.0
+
+Consulte `LEIA_PRIMEIRO_FASE4.txt`, `ALTERACOES_FASE4.md` e `CHECKLIST_HOMOLOGACAO_FASE4.md` na raiz do ZIP completo. A versão inclui despesas recorrentes, avisos internos, produtividade e métricas de adoção; não inclui push nem cobrança de despesas reais.

@@ -14,6 +14,7 @@ import {BillingPayment} from '../models/BillingPayment.js';
 import {BillingSubscription} from '../models/BillingSubscription.js';
 import {PrivateCustomer} from '../models/PrivateCustomer.js';
 import {PrivateDelivery} from '../models/PrivateDelivery.js';
+import {RecurringExpense} from '../models/RecurringExpense.js';
 import {uid} from '../services/auth.js';
 import {getAdminSettings} from '../models/AdminSetting.js';
 import {currentTrialUntil} from '../services/premiumPolicy.js';
@@ -23,7 +24,7 @@ import {asyncRoute,HttpError} from '../utils/http.js';
 export const accountRouter=Router();
 accountRouter.get('/export',asyncRoute(async(req,res)=>{
  const userId=new mongoose.Types.ObjectId(uid(req));
- const [user,entries,motorcycle,reminders,goal,subscription,payments,settings,reportEmailPreference,reportDeliveries,maintenancePlans,receiptAnalyses,aiUsage,privateCustomers,privateDeliveries]=await Promise.all([
+ const [user,entries,motorcycle,reminders,goal,subscription,payments,settings,reportEmailPreference,reportDeliveries,maintenancePlans,receiptAnalyses,aiUsage,privateCustomers,privateDeliveries,recurringExpenses]=await Promise.all([
    User.findById(userId).select('name email phone role timezone trialEndsAt createdAt').lean(),
    Entry.find({userId}).select('type category description amountCents occurredOn source platform provider externalId fuelLiters odometerKm fuelType fuelStation createdAt').sort({occurredOn:-1}).lean(),
    Motorcycle.findOne({userId}).select('model year odometerKm kmPerLiter').lean(),
@@ -38,7 +39,8 @@ accountRouter.get('/export',asyncRoute(async(req,res)=>{
    ReceiptAnalysis.find({userId}).select('suggestion confirmedEntryId createdAt').lean(),
    AiUsage.find({userId}).select('feature outcome model inputTokens outputTokens estimatedUsd createdAt').sort({createdAt:-1}).limit(5000).lean(),
    PrivateCustomer.find({userId}).select('name phone notes archived createdAt').lean(),
-   PrivateDelivery.find({userId}).select('customerId description deliveredOn amountCents createdAt').lean()
+   PrivateDelivery.find({userId}).select('customerId description deliveredOn amountCents createdAt').lean(),
+   RecurringExpense.find({userId}).select('label category amountCents dayOfMonth startMonth enabled createdAt').lean()
  ]);
  if(!user)throw new HttpError(401,'Conta não encontrada');
  // findById sempre retorna um único documento, nunca uma lista. A tipagem genérica
@@ -47,5 +49,5 @@ accountRouter.get('/export',asyncRoute(async(req,res)=>{
  res.setHeader('Cache-Control','private, no-store');
  res.setHeader('Content-Type','application/json; charset=utf-8');
  res.setHeader('Content-Disposition','attachment; filename="motopro-meus-dados.json"');
- res.json({exportedAt:new Date().toISOString(),user:{...user,trialEndsAt:currentTrialUntil(createdAt,settings.trialDays)},entries,motorcycle,reminders,goal,subscription,payments,reportEmailPreference,reportDeliveries,maintenancePlans,receiptAnalyses,aiUsage,privateCustomers,privateDeliveries});
+ res.json({exportedAt:new Date().toISOString(),user:{...user,trialEndsAt:currentTrialUntil(createdAt,settings.trialDays)},entries,motorcycle,reminders,goal,subscription,payments,reportEmailPreference,reportDeliveries,maintenancePlans,receiptAnalyses,aiUsage,privateCustomers,privateDeliveries,recurringExpenses});
 }));

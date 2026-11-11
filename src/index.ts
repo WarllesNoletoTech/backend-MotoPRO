@@ -37,12 +37,16 @@ import {integrationsRouter} from './routes/integrations.js';
 import {referralsRouter} from './routes/referrals.js';
 import {ReportEmailPreference} from './models/ReportEmailPreference.js';
 import {WeeklyReportDelivery} from './models/WeeklyReportDelivery.js';
+import {RecurringExpense} from './models/RecurringExpense.js';
+import {recurringExpensesRouter} from './routes/recurringExpenses.js';
+import {alertsRouter} from './routes/alerts.js';
+import {productivityRouter} from './routes/productivity.js';
 
 async function bootstrap(){
  validateConfig();
  await mongoose.connect(config.mongoUri,{serverSelectionTimeoutMS:10000});
  // Índices únicos devem existir antes de processar pagamentos ou novos cadastros.
- await Promise.all([User.init(),ReferralReward.init(),ReportEmailPreference.init(),WeeklyReportDelivery.init(),Entry.init(),ReceiptAnalysis.init(),PrivateCustomer.init(),PrivateDelivery.init()]);
+ await Promise.all([User.init(),ReferralReward.init(),ReportEmailPreference.init(),WeeklyReportDelivery.init(),Entry.init(),ReceiptAnalysis.init(),PrivateCustomer.init(),PrivateDelivery.init(),RecurringExpense.init()]);
  const app=express();
  app.disable('x-powered-by');
  app.set('trust proxy',1);
@@ -78,6 +82,9 @@ async function bootstrap(){
  app.use('/api/particulares',requireAuth,requirePremium,privateRouter);
  app.use('/api/plataformas',requireAuth,requirePremium,platformsRouter);
  app.use('/api/conquistas',requireAuth,requirePremium,achievementsRouter);
+ app.use('/api/recorrentes',requireAuth,requirePremium,recurringExpensesRouter);
+ app.use('/api/avisos',requireAuth,requirePremium,alertsRouter);
+ app.use('/api/produtividade',requireAuth,requirePremium,productivityRouter);
  app.use('/api/integrations',requireAuth,requireCompleteName,integrationsRouter);
  app.use((_req,res)=>res.status(404).json({error:'Rota não encontrada'}));
  app.use(errorHandler);

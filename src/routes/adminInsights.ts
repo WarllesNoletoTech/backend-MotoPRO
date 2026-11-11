@@ -18,6 +18,7 @@ import {ReceiptAnalysis} from '../models/ReceiptAnalysis.js';
 import {MaintenancePlan} from '../models/MaintenancePlan.js';
 import {PrivateCustomer} from '../models/PrivateCustomer.js';
 import {PrivateDelivery} from '../models/PrivateDelivery.js';
+import {RecurringExpense} from '../models/RecurringExpense.js';
 import {reportEmailConfigured} from '../services/reportEmail.js';
 import {uid} from '../services/auth.js';
 import {asyncRoute,HttpError} from '../utils/http.js';
@@ -103,7 +104,7 @@ adminInsightsRouter.get('/courtesies',asyncRoute(async(req,res)=>{
 
 adminInsightsRouter.get('/system',asyncRoute(async(_req,res)=>{
  const now=new Date(),day=new Date(now.getTime()-86400_000),week=new Date(now.getTime()-7*86400_000);
- const [active24h,active7d,registered7d,entries7d,registeredTotal,entriesTotal,approved7d,recentUsers,weeklyEmailSubscribers,weeklyEmailSent7d,weeklyEmailFailed7d,aiCounts,aiThirty,receiptsConfirmed,activePlans]=await Promise.all([
+ const [active24h,active7d,registered7d,entries7d,registeredTotal,entriesTotal,approved7d,recentUsers,weeklyEmailSubscribers,weeklyEmailSent7d,weeklyEmailFailed7d,aiCounts,aiThirty,receiptsConfirmed,activePlans,activeRecurrences,recurringEntries7d]=await Promise.all([
   User.countDocuments({role:'driver',lastActivityAt:{$gte:day}}),
   User.countDocuments({role:'driver',lastActivityAt:{$gte:week}}),
   User.countDocuments({role:'driver',createdAt:{$gte:week}}),
@@ -122,7 +123,9 @@ adminInsightsRouter.get('/system',asyncRoute(async(_req,res)=>{
   ]),
   AiUsage.countDocuments({createdAt:{$gte:new Date(now.getTime()-30*86400_000)}}),
   ReceiptAnalysis.countDocuments({confirmedEntryId:{$ne:null}}),
-  MaintenancePlan.countDocuments({enabled:true})
+  MaintenancePlan.countDocuments({enabled:true}),
+  RecurringExpense.countDocuments({enabled:true}),
+  Entry.countDocuments({source:'recurring',createdAt:{$gte:week}})
  ]);
  res.setHeader('Cache-Control','private, no-store');
  res.json({checkedAt:now,apiOnline:true,databaseConnected:mongoose.connection.readyState===1,
@@ -130,7 +133,7 @@ adminInsightsRouter.get('/system',asyncRoute(async(_req,res)=>{
   active24h,active7d,entries7d,entriesTotal,
   approvedPayments7d:approved7d[0]?.count||0,approvedCents7d:approved7d[0]?.amountCents||0,
   weeklyEmailConfigured:reportEmailConfigured(),weeklyEmailSubscribers,weeklyEmailSent7d,weeklyEmailFailed7d,
-  automation:{last30d:aiThirty,confirmedReceipts:receiptsConfirmed,activeMaintenancePlans:activePlans,
+  automation:{last30d:aiThirty,confirmedReceipts:receiptsConfirmed,activeMaintenancePlans:activePlans,activeRecurrences,recurringEntries7d,
    last7d:aiCounts.map(r=>({feature:r._id.feature,outcome:r._id.outcome,count:r.count,inputTokens:r.inputTokens,outputTokens:r.outputTokens,estimatedUsd:r.priced===r.count?Number(r.estimatedUsd.toFixed(6)):null}))},
   recentUsers:recentUsers.map(u=>({id:String(u._id),name:u.name,createdAt:u.createdAt,lastActivityAt:u.lastActivityAt||null})),
   note:'Atividade de usuários autenticados. Não corresponde a visualizações anônimas nem substitui monitoramento externo da Vercel/Heroku.'});

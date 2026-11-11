@@ -11,7 +11,7 @@ const schema=z.object({
   amountCents:z.number().int().positive().max(100_000_000),
   description:z.string().trim().max(160).default(''),
   occurredOn:z.string().refine(isValidDateOnly,'Data inválida'),
-  source:z.enum(['manual','voice','receipt']).default('manual'),
+  source:z.enum(['manual','voice','receipt','recurring']).default('manual'),
   platform:z.enum(['rappidex','ifood','uber','99','other']).optional(),
   fuelLiters:z.number().positive().max(200).optional(),
   odometerKm:z.number().nonnegative().max(2_000_000).optional(),
@@ -55,7 +55,7 @@ entriesRouter.get('/',asyncRoute(async(req,res)=>{
 }));
 entriesRouter.post('/',asyncRoute(async(req,res)=>{
   const data=schema.parse(req.body);
-  if(data.source==='receipt')throw new HttpError(403,'Use a confirmação da leitura de comprovante');
+  if(data.source==='receipt'||data.source==='recurring')throw new HttpError(403,'Esta origem só pode ser criada pelo recurso correspondente');
   const entry=await Entry.create({userId:uid(req),...data});
   res.status(201).json({entry});
 }));
@@ -81,6 +81,6 @@ entriesRouter.delete('/:id',asyncRoute(async(req,res)=>{
   if(!validId(req.params.id))throw new HttpError(400,'ID inválido');
   const entry=await Entry.findOne({_id:req.params.id,userId:uid(req)});
   if(!entry)throw new HttpError(404,'Lançamento não encontrado');
-  if(entry.source==='integration'||entry.source==='private')throw new HttpError(403,'Não é possível excluir importações nem entregas particulares recebidas por aqui');
+  if(entry.source==='integration'||entry.source==='private'||entry.source==='recurring')throw new HttpError(403,'Este lançamento é protegido. Para impedir novas despesas recorrentes, pause ou exclua a regra.');
   await entry.deleteOne();res.json({ok:true});
 }));
