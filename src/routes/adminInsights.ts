@@ -30,6 +30,8 @@ adminInsightsRouter.get('/users/:id/insights',asyncRoute(async(req,res)=>{
  const target=await User.findOne({_id:targetId,role:'driver'})
   .select('name email phone createdAt lastLoginAt lastActivityAt blockedAt').lean();
  if(!target)throw new HttpError(404,'Motoboy não encontrado');
+ const driver=target as unknown as {_id:mongoose.Types.ObjectId;name:string;email:string;phone:string|null;
+  createdAt:Date;lastLoginAt:Date|null;lastActivityAt:Date|null;blockedAt:Date|null};
  const [entryCount,breakdown,recent,motorcycle,maintenanceCount,pendingMaintenance,goal,integration,subscription,courtesy]=await Promise.all([
   Entry.countDocuments({userId:targetId}),
   Entry.aggregate<{_id:{type:string;category:string};count:number;totalCents:number}>([
@@ -52,15 +54,17 @@ adminInsightsRouter.get('/users/:id/insights',asyncRoute(async(req,res)=>{
  await AdminAudit.create({actorId:objectId(uid(req)),action:'driver.insights.view',targetId,
   metadata:{entries:entryCount}});
  res.setHeader('Cache-Control','private, no-store');
- res.json({user:{id:String(target._id),name:target.name,email:target.email,phone:target.phone,
-  createdAt:target.createdAt,lastLoginAt:target.lastLoginAt,lastActivityAt:target.lastActivityAt,blocked:!!target.blockedAt},
+ const moto=motorcycle as unknown as {model:string;year?:number;odometerKm?:number;kmPerLiter?:number}|null;
+ const rappidex=integration as unknown as {provider:string;remoteName:string;lastSyncAt:Date|null}|null;
+ res.json({user:{id:String(driver._id),name:driver.name,email:driver.email,phone:driver.phone,
+  createdAt:driver.createdAt,lastLoginAt:driver.lastLoginAt,lastActivityAt:driver.lastActivityAt,blocked:!!driver.blockedAt},
   entryCount,breakdown:breakdown.map(x=>({type:x._id.type,category:x._id.category,count:x.count,totalCents:x.totalCents})),
   recent:recent.map(x=>({id:String(x._id),type:x.type,category:x.category,amountCents:x.amountCents,
    occurredOn:x.occurredOn,source:x.source,description:x.description})),
-  motorcycle:motorcycle?{model:motorcycle.model,year:motorcycle.year,odometerKm:motorcycle.odometerKm,kmPerLiter:motorcycle.kmPerLiter}:null,
+  motorcycle:moto?{model:moto.model,year:moto.year,odometerKm:moto.odometerKm,kmPerLiter:moto.kmPerLiter}:null,
   maintenanceCount,pendingMaintenance,
   goal:goal?{weeklyTargetCents:goal.weeklyTargetCents||0,monthlyTargetCents:goal.monthlyTargetCents||0}:null,
-  integration:integration?{provider:integration.provider,remoteName:integration.remoteName,lastSyncAt:integration.lastSyncAt}:null,
+  integration:rappidex?{provider:rappidex.provider,remoteName:rappidex.remoteName,lastSyncAt:rappidex.lastSyncAt}:null,
   subscription:subscription?{status:subscription.status,method:subscription.method,activeUntil:subscription.activeUntil}:null,
   courtesy:courtesy?{activeUntil:courtesy.activeUntil,lastGrantedAt:courtesy.lastGrantedAt,reason:courtesy.reason}:null
  });
