@@ -11,7 +11,7 @@ const commandSchema = {
     type:{type:['string','null'],enum:['income','expense',null]},
     category:{type:['string','null'],enum:['delivery','bonus','fuel','maintenance','food','other',null]},
     amountCents:{type:['integer','null']},
-    period:{type:['string','null'],enum:['week','today',null]},
+    period:{type:['string','null'],enum:['week','today','month',null]},
     message:{type:['string','null']}
   },
   required:['kind','type','category','amountCents','period','message'],
@@ -23,7 +23,7 @@ export type AICommand = {
   type:'income'|'expense'|null;
   category:'delivery'|'bonus'|'fuel'|'maintenance'|'food'|'other'|null;
   amountCents:number|null;
-  period:'week'|'today'|null;
+  period:'week'|'today'|'month'|null;
   message:string|null;
 };
 
@@ -35,7 +35,7 @@ export function validateAICommand(raw:AICommand,text:string):ParsedCommand {
   const original=text.trim().replace(/\s+/g,' ');
   if(raw.kind==='unknown')return {kind:'unknown',message:(raw.message||'Não consegui entender. Reformule a frase.') .slice(0,220)};
   if(raw.kind==='summary'){
-    return {kind:'summary',period:raw.period==='today'?'today':'week'};
+    return {kind:'summary',period:raw.period==='today'?'today':raw.period==='month'?'month':'week'};
   }
   if(raw.kind!=='entry'||(raw.type!=='income'&&raw.type!=='expense')||
     !['delivery','bonus','fuel','maintenance','food','other'].includes(String(raw.category))||
@@ -64,8 +64,8 @@ const instructions=`Você é um classificador de comandos financeiros falados em
 Interprete SOMENTE um comando por vez e devolva os campos estritamente no schema.
 ENTRY: gastos com abastecimento/gasolina/etanol/diesel => expense/fuel; oficinas, óleo ou pneu => expense/maintenance; comida/lanche => expense/food; despesas gerais => expense/other; ganhos por corrida, entrega, frete ou aplicativo => income/delivery; bônus, gorjetas => income/bonus.
 Valores monetários são em centavos (R$ 35 = 3500; R$ 35,50 = 3550; mil reais = 100000; 25 mil = 2500000; 1.000 reais = 100000; mil e quinhentos = 150000; 1.250,50 = 125050). Não confunda litros, quilometragem, quantidades de entregas nem datas com dinheiro. Se não houver valor monetário claro, use unknown. Se o usuário falar duas operações, use unknown e solicite uma por vez.
-SUMMARY: para perguntas sobre saldo, lucros, ganhos ou despesas, use today se mencionar hoje; caso contrário week. Não invente saldo, a consulta ao banco será feita pelo backend.
-Exemplos: "coloquei cinquenta de gasolina" = expense/fuel/5000; "fiz cento e vinte de corrida" = income/delivery/12000; "paguei quarenta reais em oito litros" = expense/fuel/4000; "recebi vinte e cinco mil" = income/delivery/2500000; "rodei vinte km" = unknown; "quanto lucrei essa semana" = summary/week.
+SUMMARY: para perguntas sobre saldo, lucros, ganhos ou despesas, use today se mencionar hoje, month para mês ou mensal; caso contrário week. Não invente saldo, a consulta ao banco será feita pelo backend.
+Exemplos: "coloquei cinquenta de gasolina" = expense/fuel/5000; "fiz cento e vinte de corrida" = income/delivery/12000; "paguei quarenta reais em oito litros" = expense/fuel/4000; "recebi vinte e cinco mil" = income/delivery/2500000; "rodei vinte km" = unknown; "quanto lucrei essa semana" = summary/week; "quanto ganhei neste mês" = summary/month.
 Não exija palavras exatas. Se tiver dúvida sobre tipo, valor ou intenção, use unknown com mensagem curta em português. Nunca efetue lançamento diretamente.`;
 
 export async function interpretWithAI(text:string,apiKey:string,model='gpt-4o-mini'):Promise<Interpretation>{
