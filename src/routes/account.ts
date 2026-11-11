@@ -5,6 +5,8 @@ import {Entry} from '../models/Entry.js';
 import {Motorcycle} from '../models/Motorcycle.js';
 import {Maintenance} from '../models/Maintenance.js';
 import {Goal} from '../models/Goal.js';
+import {ReportEmailPreference} from '../models/ReportEmailPreference.js';
+import {WeeklyReportDelivery} from '../models/WeeklyReportDelivery.js';
 import {BillingPayment} from '../models/BillingPayment.js';
 import {BillingSubscription} from '../models/BillingSubscription.js';
 import {uid} from '../services/auth.js';
@@ -16,7 +18,7 @@ import {asyncRoute,HttpError} from '../utils/http.js';
 export const accountRouter=Router();
 accountRouter.get('/export',asyncRoute(async(req,res)=>{
  const userId=new mongoose.Types.ObjectId(uid(req));
- const [user,entries,motorcycle,reminders,goal,subscription,payments,settings]=await Promise.all([
+ const [user,entries,motorcycle,reminders,goal,subscription,payments,settings,reportEmailPreference,reportDeliveries]=await Promise.all([
    User.findById(userId).select('name email phone role timezone trialEndsAt createdAt').lean(),
    Entry.find({userId}).select('type category description amountCents occurredOn source fuelLiters odometerKm fuelType fuelStation createdAt').sort({occurredOn:-1}).lean(),
    Motorcycle.findOne({userId}).select('model year odometerKm kmPerLiter').lean(),
@@ -24,7 +26,9 @@ accountRouter.get('/export',asyncRoute(async(req,res)=>{
    Goal.findOne({userId}).select('weeklyTargetCents').lean(),
    BillingSubscription.findOne({userId}).select('method status priceCents activeUntil cancelAtPeriodEnd').lean(),
    BillingPayment.find({userId}).select('method status amountCents paidAt createdAt').sort({createdAt:-1}).lean(),
-   getAdminSettings()
+   getAdminSettings(),
+   ReportEmailPreference.findOne({userId}).select('email enabled verifiedAt createdAt updatedAt').lean(),
+   WeeklyReportDelivery.find({userId}).select('periodFrom periodTo status sentAt attempts').sort({periodFrom:-1}).lean()
  ]);
  if(!user)throw new HttpError(401,'Conta não encontrada');
  // findById sempre retorna um único documento, nunca uma lista. A tipagem genérica
@@ -33,5 +37,5 @@ accountRouter.get('/export',asyncRoute(async(req,res)=>{
  res.setHeader('Cache-Control','private, no-store');
  res.setHeader('Content-Type','application/json; charset=utf-8');
  res.setHeader('Content-Disposition','attachment; filename="motopro-meus-dados.json"');
- res.json({exportedAt:new Date().toISOString(),user:{...user,trialEndsAt:currentTrialUntil(createdAt,settings.trialDays)},entries,motorcycle,reminders,goal,subscription,payments});
+ res.json({exportedAt:new Date().toISOString(),user:{...user,trialEndsAt:currentTrialUntil(createdAt,settings.trialDays)},entries,motorcycle,reminders,goal,subscription,payments,reportEmailPreference,reportDeliveries});
 }));

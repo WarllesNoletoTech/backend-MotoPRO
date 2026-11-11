@@ -3,8 +3,8 @@ export function isValidDateOnly(s:string):boolean {
   const d=new Date(`${s}T00:00:00.000Z`);
   return Number.isFinite(d.getTime()) && d.toISOString().startsWith(s);
 }
-export function dateInTimezone(timezone='America/Belem'):string {
-  const parts=new Intl.DateTimeFormat('en-US',{timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+export function dateInTimezone(timezone='America/Belem',at:Date=new Date()):string {
+  const parts=new Intl.DateTimeFormat('en-US',{timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(at);
   const get=(type:string)=>parts.find(p=>p.type===type)?.value||'';
   return `${get('year')}-${get('month')}-${get('day')}`;
 }

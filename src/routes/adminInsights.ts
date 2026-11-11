@@ -11,6 +11,9 @@ import {CourtesyGrant} from '../models/CourtesyGrant.js';
 import {BillingSubscription} from '../models/BillingSubscription.js';
 import {BillingPayment} from '../models/BillingPayment.js';
 import {AdminAudit} from '../models/AdminAudit.js';
+import {ReportEmailPreference} from '../models/ReportEmailPreference.js';
+import {WeeklyReportDelivery} from '../models/WeeklyReportDelivery.js';
+import {reportEmailConfigured} from '../services/reportEmail.js';
 import {uid} from '../services/auth.js';
 import {asyncRoute,HttpError} from '../utils/http.js';
 
@@ -93,7 +96,7 @@ adminInsightsRouter.get('/courtesies',asyncRoute(async(req,res)=>{
 
 adminInsightsRouter.get('/system',asyncRoute(async(_req,res)=>{
  const now=new Date(),day=new Date(now.getTime()-86400_000),week=new Date(now.getTime()-7*86400_000);
- const [active24h,active7d,registered7d,entries7d,registeredTotal,entriesTotal,approved7d,recentUsers]=await Promise.all([
+ const [active24h,active7d,registered7d,entries7d,registeredTotal,entriesTotal,approved7d,recentUsers,weeklyEmailSubscribers,weeklyEmailSent7d,weeklyEmailFailed7d]=await Promise.all([
   User.countDocuments({role:'driver',lastActivityAt:{$gte:day}}),
   User.countDocuments({role:'driver',lastActivityAt:{$gte:week}}),
   User.countDocuments({role:'driver',createdAt:{$gte:week}}),
@@ -103,13 +106,17 @@ adminInsightsRouter.get('/system',asyncRoute(async(_req,res)=>{
   BillingPayment.aggregate<{_id:null;amountCents:number;count:number}>([
    {$match:{status:'approved',paidAt:{$gte:week}}},{$group:{_id:null,amountCents:{$sum:'$amountCents'},count:{$sum:1}}}
   ]),
-  User.find({role:'driver'}).sort({createdAt:-1}).limit(5).select('name createdAt lastActivityAt').lean()
+  User.find({role:'driver'}).sort({createdAt:-1}).limit(5).select('name createdAt lastActivityAt').lean(),
+  ReportEmailPreference.countDocuments({enabled:true,verifiedAt:{$ne:null}}),
+  WeeklyReportDelivery.countDocuments({status:'sent',sentAt:{$gte:week}}),
+  WeeklyReportDelivery.countDocuments({status:'failed',createdAt:{$gte:week}})
  ]);
  res.setHeader('Cache-Control','private, no-store');
  res.json({checkedAt:now,apiOnline:true,databaseConnected:mongoose.connection.readyState===1,
   uptimeSeconds:Math.floor(process.uptime()),registeredTotal,registered7d,
   active24h,active7d,entries7d,entriesTotal,
   approvedPayments7d:approved7d[0]?.count||0,approvedCents7d:approved7d[0]?.amountCents||0,
+  weeklyEmailConfigured:reportEmailConfigured(),weeklyEmailSubscribers,weeklyEmailSent7d,weeklyEmailFailed7d,
   recentUsers:recentUsers.map(u=>({id:String(u._id),name:u.name,createdAt:u.createdAt,lastActivityAt:u.lastActivityAt||null})),
   note:'Atividade de usuários autenticados. Não corresponde a visualizações anônimas nem substitui monitoramento externo da Vercel/Heroku.'});
 }));

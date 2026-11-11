@@ -7,6 +7,7 @@ import {uid} from '../services/auth.js';
 import {asyncRoute} from '../utils/http.js';
 import {addDays,dateInTimezone,weekRangeTuesday} from '../utils/dates.js';
 import {financialSummary} from './dashboard.js';
+import {WeeklyReportDelivery} from '../models/WeeklyReportDelivery.js';
 
 export const reportsRouter=Router();
 reportsRouter.get('/weekly',asyncRoute(async(req,res)=>{
@@ -33,4 +34,12 @@ reportsRouter.get('/weekly',asyncRoute(async(req,res)=>{
   profitChangeCents:current.profitCents-previous.profitCents,
   categories:categories.map(c=>({type:c._id.type,category:c._id.category,totalCents:c.totalCents,count:c.count})),
   message:'Fechamento calculado a partir dos lançamentos salvos. Revise despesas não registradas antes de tomar decisões.'});
+}));
+
+// Histórico próprio de entregas de relatórios. Não expõe endereço nem dados de outros usuários.
+reportsRouter.get('/deliveries',asyncRoute(async(req,res)=>{
+ const items=await WeeklyReportDelivery.find({userId:uid(req)})
+  .sort({periodFrom:-1}).limit(12).select('periodFrom periodTo status sentAt attempts').lean();
+ res.setHeader('Cache-Control','private, no-store');
+ res.json({items:items.map(x=>({period:{from:x.periodFrom,to:x.periodTo},status:x.status,sentAt:x.sentAt,attempts:x.attempts}))});
 }));
