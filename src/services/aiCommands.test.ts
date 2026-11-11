@@ -33,3 +33,7 @@ test('IA nunca grava valor inventado, quantidade física ou tipo invertido',()=>
 test('IA consulta período sem inventar saldos',()=>{
  assert.deepEqual(validateAICommand({kind:'summary',type:null,category:null,amountCents:null,period:'today',message:null},'Quanto ganhei hoje?'),{kind:'summary',period:'today'});
 });
+
+test('IA entende consulta mensal e não altera valores',()=>{
+ assert.deepEqual(validateAICommand({kind:'summary',type:null,category:null,amountCents:null,period:'month',message:null},'Quanto ganhei neste mês?'),{kind:'summary',period:'month'});
+});
