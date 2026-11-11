@@ -1,6 +1,6 @@
 {
   "name": "motopro-backend",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/services/aiCommands.test.ts src/services/commands.test.ts src/utils/dates.test.ts src/services/creditTestPayer.test.ts src/utils/subscriptionLifecycle.test.ts src/services/premiumPolicy.test.ts src/services/premiumRoutes.test.ts src/utils/phone.test.ts src/utils/name.test.ts src/services/pixOrderPayload.test.ts src/services/reportEmail.test.ts src/services/phase2.test.ts",
+    "test": "tsx --test src/services/aiCommands.test.ts src/services/commands.test.ts src/utils/dates.test.ts src/services/creditTestPayer.test.ts src/utils/subscriptionLifecycle.test.ts src/services/premiumPolicy.test.ts src/services/premiumRoutes.test.ts src/utils/phone.test.ts src/utils/name.test.ts src/services/pixOrderPayload.test.ts src/services/reportEmail.test.ts src/services/phase2.test.ts src/services/phase3.test.ts",
     "heroku-postbuild": "npm run build",
     "admin:create": "node scripts/create-admin.mjs",
     "reports:weekly": "node scripts/send-weekly-reports.mjs"

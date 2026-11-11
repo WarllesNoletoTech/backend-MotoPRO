@@ -46,3 +46,13 @@ Rotas protegidas por sessão e Premium:
 `OPENAI_INPUT_USD_PER_1M` e `OPENAI_OUTPUT_USD_PER_1M` são opcionais para estimativa de custos; não são uma fatura oficial. Fotos/áudio não são gravados pelo aplicativo. Hash e sugestões financeiras dos comprovantes expiram em 30 dias. Logs de uso armazenam apenas a funcionalidade, o resultado, o modelo e tokens (quando fornecidos).
 
 Veja `CHECKLIST_HOMOLOGACAO_FASE2.md` na raiz do pacote antes do deploy.
+
+## Fase 3 — MotoPRO v1.5.0
+
+Rotas de gestão de clientes e entregas particulares em `/api/particulares`, relatório
+de origens em `/api/plataformas` e conquistas em `/api/conquistas`, protegidas por
+`requireAuth,requirePremium`. O resumo administrativo `/api/admin/billing/analytics`
+permanece restrito ao administrador. Confirmação de recebimento particular adiciona
+receita a `Entry` com `source/private` e externalId único para evitar duplicidades.
+Nenhum serviço de pagamento externo novo foi introduzido. Preserve as variáveis do
+Mercado Pago, Rappidex, OpenAI e os envios da Fase 1.

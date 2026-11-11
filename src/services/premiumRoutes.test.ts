@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 const source=readFileSync(new URL('../index.ts',import.meta.url),'utf8');
-for(const route of ['/api/dashboard','/api/entries','/api/moto','/api/goals','/api/assistant','/api/campaigns','/api/reports','/api/receipts','/api/reconciliation']){
+for(const route of ['/api/dashboard','/api/entries','/api/moto','/api/goals','/api/assistant','/api/campaigns','/api/reports','/api/receipts','/api/reconciliation','/api/particulares','/api/plataformas','/api/conquistas']){
  test(`${route} exige auth + Premium no backend`,()=>{
   const line=source.split('\n').find(x=>x.includes(`'${route}'`));
   assert.ok(line,`Rota ausente: ${route}`);

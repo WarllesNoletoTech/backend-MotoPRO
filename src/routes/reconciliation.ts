@@ -14,7 +14,7 @@ reconciliationRouter.get('/',asyncRoute(async(req,res)=>{
  if(from>to||to>today||Date.parse(`${to}T12:00:00Z`)-Date.parse(`${from}T12:00:00Z`)>30*86400000)throw new HttpError(400,'Selecione até 31 dias, sem datas futuras');
  const userId=uid(req);
  const [items,connection]=await Promise.all([
-  Entry.find({userId,type:'income',category:'delivery',occurredOn:{$gte:from,$lte:to}})
+  Entry.find({userId,type:'income',category:'delivery',source:{$ne:'private'},occurredOn:{$gte:from,$lte:to}})
    .select('_id amountCents occurredOn source provider description').sort({occurredOn:-1}).limit(5001).lean(),
   IntegrationConnection.exists({userId,provider:'rappidex'})
  ]);

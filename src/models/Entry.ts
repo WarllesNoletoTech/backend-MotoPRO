@@ -7,8 +7,9 @@ const schema = new Schema({
   description:{type:String,trim:true,maxlength:160,default:''},
   amountCents:{type:Number,required:true,min:1,max:100_000_000,validate:Number.isSafeInteger},
   occurredOn:{type:String,required:true,match:/^\d{4}-\d{2}-\d{2}$/},
-  source:{type:String,enum:['manual','voice','integration','receipt'],default:'manual'},
+  source:{type:String,enum:['manual','voice','integration','receipt','private'],default:'manual'},
   receiptId:{type:Schema.Types.ObjectId,ref:'ReceiptAnalysis'},
+  platform:{type:String,enum:['rappidex','ifood','uber','99','other']},
   provider:{type:String,trim:true},externalId:{type:String,trim:true},
   fuelLiters:{type:Number,min:0,max:200},odometerKm:{type:Number,min:0,max:2_000_000},
   fuelType:{type:String,enum:['gasolina','etanol','diesel','outro']},fuelStation:{type:String,trim:true,maxlength:100}

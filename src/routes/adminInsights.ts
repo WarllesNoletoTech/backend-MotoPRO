@@ -16,6 +16,8 @@ import {WeeklyReportDelivery} from '../models/WeeklyReportDelivery.js';
 import {AiUsage} from '../models/AiUsage.js';
 import {ReceiptAnalysis} from '../models/ReceiptAnalysis.js';
 import {MaintenancePlan} from '../models/MaintenancePlan.js';
+import {PrivateCustomer} from '../models/PrivateCustomer.js';
+import {PrivateDelivery} from '../models/PrivateDelivery.js';
 import {reportEmailConfigured} from '../services/reportEmail.js';
 import {uid} from '../services/auth.js';
 import {asyncRoute,HttpError} from '../utils/http.js';
@@ -38,7 +40,7 @@ adminInsightsRouter.get('/users/:id/insights',asyncRoute(async(req,res)=>{
  if(!target)throw new HttpError(404,'Motoboy não encontrado');
  const driver=target as unknown as {_id:mongoose.Types.ObjectId;name:string;email:string;phone:string|null;
   createdAt:Date;lastLoginAt:Date|null;lastActivityAt:Date|null;blockedAt:Date|null};
- const [entryCount,breakdown,recent,motorcycle,maintenanceCount,pendingMaintenance,goal,integration,subscription,courtesy]=await Promise.all([
+ const [entryCount,breakdown,recent,motorcycle,maintenanceCount,pendingMaintenance,goal,integration,subscription,courtesy,privateCustomerCount,privateDeliveryCount]=await Promise.all([
   Entry.countDocuments({userId:targetId}),
   Entry.aggregate<{_id:{type:string;category:string};count:number;totalCents:number}>([
    {$match:{userId:targetId}},
@@ -54,7 +56,9 @@ adminInsightsRouter.get('/users/:id/insights',asyncRoute(async(req,res)=>{
   IntegrationConnection.findOne({userId:targetId,provider:'rappidex'})
    .select('provider remoteName lastSyncAt createdAt').lean(),
   BillingSubscription.findOne({userId:targetId}).select('status method activeUntil').lean(),
-  CourtesyGrant.findOne({userId:targetId}).select('activeUntil lastGrantedAt reason').lean()
+  CourtesyGrant.findOne({userId:targetId}).select('activeUntil lastGrantedAt reason').lean(),
+  PrivateCustomer.countDocuments({userId:targetId}),
+  PrivateDelivery.countDocuments({userId:targetId})
  ]);
  // O acesso individual é sempre auditado e não retorna credenciais, tokens nem dados bancários.
  await AdminAudit.create({actorId:objectId(uid(req)),action:'driver.insights.view',targetId,
@@ -68,7 +72,7 @@ adminInsightsRouter.get('/users/:id/insights',asyncRoute(async(req,res)=>{
   recent:recent.map(x=>({id:String(x._id),type:x.type,category:x.category,amountCents:x.amountCents,
    occurredOn:x.occurredOn,source:x.source,description:x.description})),
   motorcycle:moto?{model:moto.model,year:moto.year,odometerKm:moto.odometerKm,kmPerLiter:moto.kmPerLiter}:null,
-  maintenanceCount,pendingMaintenance,
+  maintenanceCount,pendingMaintenance,privateCustomerCount,privateDeliveryCount,
   goal:goal?{weeklyTargetCents:goal.weeklyTargetCents||0,monthlyTargetCents:goal.monthlyTargetCents||0}:null,
   integration:rappidex?{provider:rappidex.provider,remoteName:rappidex.remoteName,lastSyncAt:rappidex.lastSyncAt}:null,
   subscription:subscription?{status:subscription.status,method:subscription.method,activeUntil:subscription.activeUntil}:null,
@@ -130,4 +134,48 @@ adminInsightsRouter.get('/system',asyncRoute(async(_req,res)=>{
    last7d:aiCounts.map(r=>({feature:r._id.feature,outcome:r._id.outcome,count:r.count,inputTokens:r.inputTokens,outputTokens:r.outputTokens,estimatedUsd:r.priced===r.count?Number(r.estimatedUsd.toFixed(6)):null}))},
   recentUsers:recentUsers.map(u=>({id:String(u._id),name:u.name,createdAt:u.createdAt,lastActivityAt:u.lastActivityAt||null})),
   note:'Atividade de usuários autenticados. Não corresponde a visualizações anônimas nem substitui monitoramento externo da Vercel/Heroku.'});
+}));
+
+// Indicadores agregados por período. Não fornece transcrições, telefones ou saldos individuais.
+adminInsightsRouter.get('/analytics',asyncRoute(async(req,res)=>{
+ const {days}=z.object({days:z.coerce.number().int().refine(v=>[7,30,90].includes(v)).default(30)}).parse(req.query);
+ const now=new Date(),start=new Date(now.getTime()-days*86400_000),cohortStart=new Date(start.getTime()-days*86400_000);
+ const [users,activeDrivers,newDrivers,previousCohort,retainedDrivers,activeSubscriptions,activeCourtesy,payments,platformStats,privateDeliveries,privateCustomers,aiSummary]=await Promise.all([
+  User.countDocuments({role:'driver'}),
+  User.countDocuments({role:'driver',lastActivityAt:{$gte:start}}),
+  User.countDocuments({role:'driver',createdAt:{$gte:start}}),
+  User.countDocuments({role:'driver',createdAt:{$gte:cohortStart,$lt:start}}),
+  User.countDocuments({role:'driver',createdAt:{$gte:cohortStart,$lt:start},lastActivityAt:{$gte:start}}),
+  BillingSubscription.find({status:'active',activeUntil:{$gt:now}}).select('priceCents cancelAtPeriodEnd').lean(),
+  CourtesyGrant.countDocuments({activeUntil:{$gt:now}}),
+  BillingPayment.aggregate<{_id:null;amountCents:number;count:number}>([
+   {$match:{status:'approved',paidAt:{$gte:start,$lte:now}}},{$group:{_id:null,amountCents:{$sum:'$amountCents'},count:{$sum:1}}}
+  ]),
+  Entry.aggregate<{_id:{type:string;source:string;provider?:string;platform?:string};count:number;amountCents:number}>([
+   {$match:{createdAt:{$gte:start,$lte:now}}},
+   {$group:{_id:{type:'$type',source:'$source',provider:'$provider',platform:'$platform'},count:{$sum:1},amountCents:{$sum:'$amountCents'}}}
+  ]),
+  PrivateDelivery.countDocuments({createdAt:{$gte:start}}),
+  PrivateCustomer.countDocuments({createdAt:{$gte:start}}),
+  AiUsage.aggregate<{_id:null;calls:number;estimatedUsd:number;priced:number}>([
+   {$match:{createdAt:{$gte:start}}},{$group:{_id:null,calls:{$sum:1},estimatedUsd:{$sum:{$ifNull:['$estimatedUsd',0]}},priced:{$sum:{$cond:[{$ne:['$estimatedUsd',null]},1,0]}}}}
+  ])
+ ]);
+ const paid=payments[0];
+ // Projeção para referência operacional; NÃO é receita futura contratada/garantida.
+ const monthlyProjectionCents=Math.round(activeSubscriptions.reduce((sum,s)=>sum+(s.priceCents||999),0)*30/7);
+ res.setHeader('Cache-Control','private, no-store');
+ res.json({periodDays:days,generatedAt:now,users,activeDrivers,newDrivers,
+  previousCohort,retainedDrivers,retentionPercent:previousCohort?Math.round(retainedDrivers/previousCohort*100):null,
+  payingSubscribers:activeSubscriptions.length,activeCourtesy,
+  cancelAtPeriodEnd:activeSubscriptions.filter(s=>s.cancelAtPeriodEnd).length,
+  activeSubscriptionRatio:users?Math.round(activeSubscriptions.length/users*100):0,
+  approvedPayments:paid?.count||0,approvedRevenueCents:paid?.amountCents||0,
+  monthlyProjectionCents,
+  privateDeliveries,privateCustomers,
+  earnings:platformStats.map(s=>({type:s._id.type,source:s._id.source,provider:s._id.provider||'',platform:s._id.platform||'',count:s.count,amountCents:s.amountCents})),
+  ai:{calls:aiSummary[0]?.calls||0,estimatedUsd:aiSummary[0]?.priced===aiSummary[0]?.calls?Number((aiSummary[0]?.estimatedUsd||0).toFixed(6)):null},
+  notes:['Retenção: entre os cadastrados nos '+days+' dias anteriores ao período, quantos voltaram a utilizar o MotoPRO no período selecionado.',
+   'Receita aprovada: pagamentos efetivamente aprovados no período. Projeção mensal: valor teórico equivalente a 30 dias das assinaturas atualmente ativas, não previsão garantida.',
+   'Ganhos de motoboys e despesas privadas são exibidos somente como totais agregados. A métrica de atividade depende de requisições autenticadas.']});
 }));
