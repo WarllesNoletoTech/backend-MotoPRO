@@ -11,7 +11,7 @@ export function errorHandler(err:unknown,_req:Request,res:Response,_next:NextFun
   if(err instanceof HttpError)return res.status(err.statusCode).json({error:err.message});
   if(typeof err==='object'&&err!==null&&'code' in err&&err.code===11000)return res.status(409).json({error:'Registro já existente'});
   const e=err as {name?:string;code?:string}|null;
-  if(e?.name==='MulterError'||e?.code==='LIMIT_FILE_SIZE')return res.status(400).json({error:'Áudio inválido ou muito grande'});
+  if(e?.name==='MulterError'||e?.code==='LIMIT_FILE_SIZE')return res.status(400).json({error:'Arquivo inválido ou muito grande'});
   console.error('API error:',err);
   return res.status(500).json({error:'Erro interno. Tente novamente.'});
 }

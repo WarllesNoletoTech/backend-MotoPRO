@@ -11,7 +11,7 @@ const schema=z.object({
   amountCents:z.number().int().positive().max(100_000_000),
   description:z.string().trim().max(160).default(''),
   occurredOn:z.string().refine(isValidDateOnly,'Data inválida'),
-  source:z.enum(['manual','voice']).default('manual'),
+  source:z.enum(['manual','voice','receipt']).default('manual'),
   fuelLiters:z.number().positive().max(200).optional(),
   odometerKm:z.number().nonnegative().max(2_000_000).optional(),
   fuelType:z.enum(['gasolina','etanol','diesel','outro']).optional(),
@@ -53,6 +53,7 @@ entriesRouter.get('/',asyncRoute(async(req,res)=>{
 }));
 entriesRouter.post('/',asyncRoute(async(req,res)=>{
   const data=schema.parse(req.body);
+  if(data.source==='receipt')throw new HttpError(403,'Use a confirmação da leitura de comprovante');
   const entry=await Entry.create({userId:uid(req),...data});
   res.status(201).json({entry});
 }));
@@ -62,6 +63,7 @@ entriesRouter.patch('/:id',asyncRoute(async(req,res)=>{
   const current=await Entry.findOne({_id:req.params.id,userId:uid(req)});
   if(!current)throw new HttpError(404,'Lançamento não encontrado');
   if(current.source==='integration')throw new HttpError(403,'Importações devem ser corrigidas na plataforma de origem');
+  if(patch.source!==undefined&&patch.source!==current.source)throw new HttpError(403,'Não é possível alterar a origem do lançamento');
   const candidate={...current.toObject(),...patch};
   if(patch.category&&patch.category!=='fuel'){delete candidate.fuelLiters;delete candidate.fuelType;delete candidate.fuelStation;}
   const merged=schema.parse(candidate);

@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import {extractAmountCents,parseCommand,type ParsedCommand,normalizeText} from './commands.js';
 
-export type Interpretation = {command:ParsedCommand;engine:'ai'|'basic';advisory?:string};
+export type Interpretation = {command:ParsedCommand;engine:'ai'|'basic';advisory?:string;usage?:{inputTokens:number;outputTokens:number}};
 
 // A mesma estrutura é retornada pela IA em qualquer intenção. Ela não pode executar ações.
 const commandSchema = {
@@ -85,7 +85,7 @@ export async function interpretWithAI(text:string,apiKey:string,model='gpt-4o-mi
     const parsed=JSON.parse(answer.output_text||'null') as Partial<AICommand>|null;
     if(!parsed||typeof parsed!=='object'||!['entry','summary','unknown'].includes(String(parsed.kind)))
       throw new Error('Resposta da IA incompleta');
-    return {command:validateAICommand(parsed as AICommand,text),engine:'ai'};
+    return {command:validateAICommand(parsed as AICommand,text),engine:'ai',usage:{inputTokens:answer.usage?.input_tokens||0,outputTokens:answer.usage?.output_tokens||0}};
   }catch(e){
     const status=(e as {status?:number}).status;
     console.warn('Interpretação IA indisponível:',status||'indisponível');

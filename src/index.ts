@@ -17,6 +17,10 @@ import {entriesRouter} from './routes/entries.js';
 import {dashboardRouter} from './routes/dashboard.js';
 import {reportsRouter} from './routes/reports.js';
 import {reportEmailPreferencesRouter} from './routes/reportEmailPreferences.js';
+import {receiptsRouter} from './routes/receipts.js';
+import {reconciliationRouter} from './routes/reconciliation.js';
+import {Entry} from './models/Entry.js';
+import {ReceiptAnalysis} from './models/ReceiptAnalysis.js';
 import {motoRouter} from './routes/moto.js';
 import {goalsRouter} from './routes/goals.js';
 import {assistantRouter} from './routes/assistant.js';
@@ -33,7 +37,7 @@ async function bootstrap(){
  validateConfig();
  await mongoose.connect(config.mongoUri,{serverSelectionTimeoutMS:10000});
  // Índices únicos devem existir antes de processar pagamentos ou novos cadastros.
- await Promise.all([User.init(),ReferralReward.init(),ReportEmailPreference.init(),WeeklyReportDelivery.init()]);
+ await Promise.all([User.init(),ReferralReward.init(),ReportEmailPreference.init(),WeeklyReportDelivery.init(),Entry.init(),ReceiptAnalysis.init()]);
  const app=express();
  app.disable('x-powered-by');
  app.set('trust proxy',1);
@@ -64,6 +68,8 @@ async function bootstrap(){
  app.use('/api/moto',requireAuth,requirePremium,motoRouter);
  app.use('/api/goals',requireAuth,requirePremium,goalsRouter);
  app.use('/api/assistant',requireAuth,requirePremium,assistantRouter);
+ app.use('/api/receipts',requireAuth,requirePremium,receiptsRouter);
+ app.use('/api/reconciliation',requireAuth,requirePremium,reconciliationRouter);
  app.use('/api/integrations',requireAuth,requireCompleteName,integrationsRouter);
  app.use((_req,res)=>res.status(404).json({error:'Rota não encontrada'}));
  app.use(errorHandler);

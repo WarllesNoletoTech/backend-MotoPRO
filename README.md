@@ -31,3 +31,18 @@ npm start
 
 
 **No monorepo MotoPRO:** esta pasta chama-se `backend-MotoPRO`. Veja o arquivo `README_DEPLOY.md` da raiz para configurar Vercel e Heroku a partir de um unico repositorio.
+
+## Fase 2 — MotoPRO v1.4.0
+
+Rotas protegidas por sessão e Premium:
+- `POST /api/assistant/transcribe`: opção `doubleCheck=true` realiza uma segunda transcrição, com custo adicional, e exige revisão se o texto divergir.
+- `POST /api/receipts/analyze`: `multipart/form-data` com campo `image` (JPG/PNG/WEBP até 4 MB); análise pela OpenAI, sem armazenar a foto.
+- `POST /api/receipts/:id/confirm`: usuário confere e confirma lançamento (idempotência por usuário/comprovante).
+- `GET/POST/PATCH/DELETE /api/moto/maintenance-plans`: criação, consulta, registro de serviço e desativação de planos.
+- `GET /api/reconciliation`: conferência da importação Rappidex contra receitas manuais (máximo 31 dias).
+- `GET /api/admin/billing/system`: contagens agregadas de IA e manutenção, somente admin.
+
+`OPENAI_API_KEY` habilita a IA. `OPENAI_RECEIPT_MODEL` é opcional (padrão: `OPENAI_COMMAND_MODEL`).
+`OPENAI_INPUT_USD_PER_1M` e `OPENAI_OUTPUT_USD_PER_1M` são opcionais para estimativa de custos; não são uma fatura oficial. Fotos/áudio não são gravados pelo aplicativo. Hash e sugestões financeiras dos comprovantes expiram em 30 dias. Logs de uso armazenam apenas a funcionalidade, o resultado, o modelo e tokens (quando fornecidos).
+
+Veja `CHECKLIST_HOMOLOGACAO_FASE2.md` na raiz do pacote antes do deploy.
