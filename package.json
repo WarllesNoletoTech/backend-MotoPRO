@@ -1,6 +1,6 @@
 {
   "name": "motopro-backend",
-  "version": "1.8.2",
+  "version": "1.8.3",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/services/aiCommands.test.ts src/services/commands.test.ts src/utils/dates.test.ts src/services/creditTestPayer.test.ts src/utils/subscriptionLifecycle.test.ts src/services/premiumPolicy.test.ts src/services/premiumRoutes.test.ts src/utils/phone.test.ts src/utils/name.test.ts src/services/pixOrderPayload.test.ts src/services/phase2.test.ts src/services/phase3.test.ts src/services/phase4.test.ts src/services/phase5.test.ts src/services/oneSignal.test.ts",
+    "test": "tsx --test src/services/aiCommands.test.ts src/services/commands.test.ts src/utils/dates.test.ts src/services/creditTestPayer.test.ts src/utils/subscriptionLifecycle.test.ts src/services/premiumPolicy.test.ts src/services/premiumRoutes.test.ts src/utils/phone.test.ts src/utils/name.test.ts src/services/pixOrderPayload.test.ts src/services/phase2.test.ts src/services/phase3.test.ts src/services/phase4.test.ts src/services/phase5.test.ts src/services/oneSignal.test.ts src/services/notificationMessages.test.ts",
     "heroku-postbuild": "npm run build",
     "admin:create": "node scripts/create-admin.mjs",
     "push:daily": "node scripts/send-daily-push.mjs",

@@ -23,11 +23,12 @@ test('OneSignal exige chave REST para que o agendador envie avisos',()=>{
 });
 
 test('aviso individual OneSignal usa somente IDs de assinatura confirmados, sem aliases do cliente',async()=>{
- const oldId=process.env.ONESIGNAL_APP_ID,oldKey=process.env.ONESIGNAL_REST_API_KEY;
+ const oldId=process.env.ONESIGNAL_APP_ID,oldKey=process.env.ONESIGNAL_REST_API_KEY,oldOrigin=process.env.APP_ORIGIN;
  const originalFetch=globalThis.fetch;
  try{
   process.env.ONESIGNAL_APP_ID=testId;
   process.env.ONESIGNAL_REST_API_KEY='test-only-long-fake-key';
+  process.env.APP_ORIGIN='https://motopro.example.com';
   let count=0;
   globalThis.fetch=(async (url,options)=>{
    assert.equal(url,'https://api.onesignal.com/notifications');
@@ -36,6 +37,7 @@ test('aviso individual OneSignal usa somente IDs de assinatura confirmados, sem 
    assert.equal(body.include_aliases,undefined);
    assert.equal(body.target_channel,undefined);
    assert.match(body.contents.pt,/aviso/);
+   assert.equal(body.chrome_web_icon,'https://motopro.example.com/icon-192.png');
    assert.ok(!JSON.stringify(body).includes('ganhou R$'));
    count++;
    return new Response(JSON.stringify({id:'mock-id'}),{status:200,headers:{'Content-Type':'application/json'}});
@@ -46,5 +48,6 @@ test('aviso individual OneSignal usa somente IDs de assinatura confirmados, sem 
   globalThis.fetch=originalFetch;
   if(oldId===undefined)delete process.env.ONESIGNAL_APP_ID;else process.env.ONESIGNAL_APP_ID=oldId;
   if(oldKey===undefined)delete process.env.ONESIGNAL_REST_API_KEY;else process.env.ONESIGNAL_REST_API_KEY=oldKey;
+  if(oldOrigin===undefined)delete process.env.APP_ORIGIN;else process.env.APP_ORIGIN=oldOrigin;
  }
 });

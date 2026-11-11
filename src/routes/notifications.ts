@@ -21,7 +21,7 @@ notificationRouter.post('/subscribe',asyncRoute(async(req,res)=>{
  const data=schema.parse(req.body);validatePushSubscription(data);
  if(!publicPushKey())throw new HttpError(503,'Notificações ainda não configuradas no servidor');
  const user=(await User.findById(uid(req)).select('role blockedAt').lean()) as unknown as {_id:unknown;role:string;blockedAt:Date|null}|null;
- if(!user||user.role!=='driver'||user.blockedAt)throw new HttpError(403,'Conta sem permissão');
+ if(!user||!['driver','admin'].includes(user.role)||user.blockedAt)throw new HttpError(403,'Conta sem permissão');
  await PushSubscription.findOneAndUpdate({endpoint:data.endpoint},{$set:{userId:user._id,keys:data.keys,enabled:true,lastError:null}},{upsert:true});
  res.setHeader('Cache-Control','no-store');res.json({ok:true});
 }));
@@ -38,7 +38,7 @@ notificationRouter.post('/onesignal/subscribe',oneSignalLimit,asyncRoute(async(r
  if(!oneSignalAppId())throw new HttpError(503,'OneSignal não configurado');
  const {subscriptionId}=oneSignalDevice.parse(req.body);
  const user=await User.findById(uid(req)).select('role blockedAt').lean() as unknown as {role:string;blockedAt:Date|null}|null;
- if(!user||user.role!=='driver'||user.blockedAt)throw new HttpError(403,'Conta sem permissão');
+ if(!user||!['driver','admin'].includes(user.role)||user.blockedAt)throw new HttpError(403,'Conta sem permissão');
  await OneSignalDevice.findOneAndUpdate({subscriptionId},{$set:{userId:uid(req),enabled:true,lastSeenAt:new Date()}},{upsert:true});
  res.setHeader('Cache-Control','no-store');res.json({ok:true});
 }));

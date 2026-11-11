@@ -11,13 +11,16 @@ import {sendWebPush,pushConfigured} from './webPush.js';
 import {currentTrialUntil,premiumAccessFor} from './premiumPolicy.js';
 import {subscriptionNotice} from '../utils/subscriptionLifecycle.js';
 import {nameParts} from '../utils/name.js';
+import {getNotificationSettings} from '../models/NotificationSetting.js';
+import {dailyPushMessage} from './notificationMessages.js';
 /** Execução diária pelo Heroku Scheduler, nunca a partir de uma rota pública. */
 export async function runDailyPush(maxUsers=150,instant=new Date()){
  const sendViaOneSignal=oneSignalSendingReady();
  if(!sendViaOneSignal&&!pushConfigured())throw new Error('Configure OneSignal (App ID e REST API Key) ou as chaves VAPID');
  const stats={scanned:0,sent:0,failed:0,skipped:0};
  const max=Math.max(1,Math.min(500,Math.floor(maxUsers)));
- const settings=await getAdminSettings();
+ const [settings,notificationSettings]=await Promise.all([getAdminSettings(),getNotificationSettings()]);
+ if(!notificationSettings.enabled)return stats;
  await Promise.all([PushDelivery.init(),PushSubscription.init(),OneSignalDevice.init()]);
  // Iterar usuários distintos para evitar múltiplas notificações do mesmo dia.
  const userIds=sendViaOneSignal?await OneSignalDevice.distinct('userId',{enabled:true}):await PushSubscription.distinct('userId',{enabled:true});
@@ -35,7 +38,9 @@ export async function runDailyPush(maxUsers=150,instant=new Date()){
   const notice=subscriptionNotice({paidUntil:sub?.activeUntil,courtesyUntil:courtesy?.activeUntil,trialUntil:currentTrialUntil(user.createdAt,settings.trialDays)},instant);
   if(!premiumAccessFor(notice.status,true,false).allowed){stats.skipped++;continue;}
   const alerts=await getUserAlerts(String(id));
-  if(!alerts || !alerts.count){stats.skipped++;continue;}
+  if(!alerts){stats.skipped++;continue;}
+  const message=dailyPushMessage(alerts.items,notice.status==='expiring',notificationSettings);
+  if(!message){stats.skipped++;continue;}
   const date=alerts.today;
   const existing=await PushDelivery.findOneAndUpdate({userId:id,date},{$setOnInsert:{userId:id,date,status:'pending'}},{upsert:true,new:true});
   const claimed=await PushDelivery.findOneAndUpdate({_id:existing._id,$or:[{status:'pending'},{status:'failed',attempts:{$lt:3}},
@@ -46,7 +51,7 @@ export async function runDailyPush(maxUsers=150,instant=new Date()){
    if(sendViaOneSignal){
     const subscriptions=await OneSignalDevice.find({userId:id,enabled:true}).select('subscriptionId').limit(10).lean();
     if(!subscriptions.length){await PushDelivery.deleteOne({_id:claimed._id});stats.skipped++;continue;}
-    await sendOneSignalNotice(subscriptions.map(s=>String(s.subscriptionId)),alerts.count);
+    await sendOneSignalNotice(subscriptions.map(s=>String(s.subscriptionId)),message);
     await PushDelivery.updateOne({_id:claimed._id},{$set:{status:'sent',sentAt:instant}});stats.sent++;
     continue;
    }
@@ -56,7 +61,7 @@ export async function runDailyPush(maxUsers=150,instant=new Date()){
    for(const device of devices){
     try{
      // Conteúdo genérico evita expor movimentações financeiras na tela de bloqueio.
-     const result=await sendWebPush(device,{title:'MotoPRO · Avisos',body:`Você tem ${alerts.count} aviso(s) para conferir no aplicativo.`,url:'/app/avisos'});
+     const result=await sendWebPush(device,message);
      if(result.expired){await PushSubscription.deleteOne({_id:device._id});continue;}
      await PushSubscription.updateOne({_id:device._id},{$set:{lastSentAt:instant,lastError:null}});sent++;
     }catch(e){

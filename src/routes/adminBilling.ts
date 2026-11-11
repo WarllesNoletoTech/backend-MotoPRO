@@ -12,6 +12,7 @@ import {User} from '../models/User.js';
 import {Entry} from '../models/Entry.js';
 import {adminInsightsRouter} from './adminInsights.js';
 import {adminOperationsRouter} from './adminOperations.js';
+import {adminNotificationsRouter} from './adminNotifications.js';
 import {adminPrivacyRouter} from './privacyRequests.js';
 import {uid} from '../services/auth.js';
 import {asyncRoute,HttpError} from '../utils/http.js';
@@ -240,4 +241,5 @@ adminBillingRouter.get('/audit',asyncRoute(async(_req,res)=>{
 // Insights herda a autorização e a identidade do administrador.
 adminBillingRouter.use(adminInsightsRouter);
 adminBillingRouter.use(adminOperationsRouter);
+adminBillingRouter.use(adminNotificationsRouter);
 adminBillingRouter.use(adminPrivacyRouter);
