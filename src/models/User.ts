@@ -11,6 +11,7 @@ const schema = new Schema({
   blockedAt:{type:Date,default:null},
   blockReason:{type:String,default:'',maxlength:240},
   lastLoginAt:{type:Date,default:null},
+  lastActivityAt:{type:Date,default:null,index:true},
   timezone:{type:String,default:'America/Belem'},
   // Para usuários antigos pode estar ausente até completar o cadastro.
   phone:{type:String,trim:true,default:null,maxlength:16},

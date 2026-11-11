@@ -15,6 +15,7 @@ import {User} from './models/User.js';
 import {getAdminSettings} from './models/AdminSetting.js';
 import {entriesRouter} from './routes/entries.js';
 import {dashboardRouter} from './routes/dashboard.js';
+import {reportsRouter} from './routes/reports.js';
 import {motoRouter} from './routes/moto.js';
 import {goalsRouter} from './routes/goals.js';
 import {assistantRouter} from './routes/assistant.js';
@@ -55,6 +56,7 @@ async function bootstrap(){
  app.get('/api/campaigns',requireAuth,requirePremium,async(_req,res,next)=>{try{const docs=await RewardCampaign.find({status:{$in:['published','closed']}}).sort({createdAt:-1}).limit(30).select('title description reward objectiveCriteria startsAt endsAt status resultSummary').lean();res.json({items:docs});}catch(err){next(err);}});
  app.use('/api/dashboard',requireAuth,requirePremium,dashboardRouter);
  app.use('/api/entries',requireAuth,requirePremium,entriesRouter);
+ app.use('/api/reports',requireAuth,requirePremium,reportsRouter);
  app.use('/api/moto',requireAuth,requirePremium,motoRouter);
  app.use('/api/goals',requireAuth,requirePremium,goalsRouter);
  app.use('/api/assistant',requireAuth,requirePremium,assistantRouter);

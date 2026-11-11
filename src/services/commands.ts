@@ -1,6 +1,6 @@
 export type ParsedCommand =
  | {kind:'entry';type:'income'|'expense';category:'delivery'|'bonus'|'fuel'|'maintenance'|'food'|'other';amountCents:number;description:string}
- | {kind:'summary';period:'week'|'today'}
+ | {kind:'summary';period:'week'|'today'|'month'}
  | {kind:'unknown';message:string};
 
 export const normalizeText = (value:string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
@@ -163,7 +163,7 @@ export function parseCommand(text:string):ParsedCommand{
  const query=/^(?:quanto|quantos|qual|quais|resumo|meu saldo|saldo|meu lucro|lucro|total|balanco)\b/.test(s) ||
   /\b(me mostre|mostra|me diga|como foi)\b/.test(s) && /\b(ganho|ganhos|gastos|despesas|receitas|lucro)\b/.test(s) ||
   /\b(quanto|qual)\b/.test(s) && /\b(lucrei|ganhei|gastei|recebi)\b/.test(s);
- if(query)return {kind:'summary',period:/\b(hoje|dia de hoje)\b/.test(s)?'today':'week'};
+ if(query)return {kind:'summary',period:/\b(hoje|dia de hoje)\b/.test(s)?'today':/\b(mes|mensal|neste mes|esse mes)\b/.test(s)?'month':'week'};
 
  const fuel=/\b(abastec\w*|abastecimento|gasolina|etanol|alcool|combustivel|diesel|tanque)\b/.test(s);
  const maintenance=/\b(troquei|troca|revisao|pneu\w*|oleo|manutencao|oficina|conserto\w*)\b/.test(s);
