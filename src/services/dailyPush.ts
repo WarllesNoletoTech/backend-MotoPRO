@@ -44,9 +44,9 @@ export async function runDailyPush(maxUsers=150,instant=new Date()){
   if(!claimed){stats.skipped++;continue;}
   try{
    if(sendViaOneSignal){
-    const active=await OneSignalDevice.exists({userId:id,enabled:true});
-    if(!active){await PushDelivery.deleteOne({_id:claimed._id});stats.skipped++;continue;}
-    await sendOneSignalNotice(String(id),alerts.count);
+    const subscriptions=await OneSignalDevice.find({userId:id,enabled:true}).select('subscriptionId').limit(10).lean();
+    if(!subscriptions.length){await PushDelivery.deleteOne({_id:claimed._id});stats.skipped++;continue;}
+    await sendOneSignalNotice(subscriptions.map(s=>String(s.subscriptionId)),alerts.count);
     await PushDelivery.updateOne({_id:claimed._id},{$set:{status:'sent',sentAt:instant}});stats.sent++;
     continue;
    }

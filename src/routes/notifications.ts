@@ -1,4 +1,5 @@
 import {Router} from 'express';
+import {rateLimit} from 'express-rate-limit';
 import {z} from 'zod';
 import {uid} from '../services/auth.js';
 import {asyncRoute,HttpError} from '../utils/http.js';
@@ -32,7 +33,8 @@ notificationRouter.post('/unsubscribe',asyncRoute(async(req,res)=>{
 
 // Dispositivos OneSignal cadastrados apenas após autorização explícita no cliente.
 const oneSignalDevice=z.object({subscriptionId:z.string().uuid()}).strict();
-notificationRouter.post('/onesignal/subscribe',asyncRoute(async(req,res)=>{
+const oneSignalLimit=rateLimit({windowMs:60*60*1000,limit:30,standardHeaders:'draft-7',legacyHeaders:false,message:{error:'Muitas tentativas de ativação. Tente novamente mais tarde.'}});
+notificationRouter.post('/onesignal/subscribe',oneSignalLimit,asyncRoute(async(req,res)=>{
  if(!oneSignalAppId())throw new HttpError(503,'OneSignal não configurado');
  const {subscriptionId}=oneSignalDevice.parse(req.body);
  const user=await User.findById(uid(req)).select('role blockedAt').lean() as unknown as {role:string;blockedAt:Date|null}|null;
